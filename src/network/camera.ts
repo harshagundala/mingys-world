@@ -25,6 +25,7 @@ class Camera extends EventTarget {
     session.addEventListener("camera", (e: any) => {
       this.remoteEnabled = true;
       this.remoteFrame = e.detail.frame;
+      if (this.pc?.connectionState !== "connected") this.remote = null;
       this.dispatchEvent(new Event("frame"));
     });
     session.addEventListener("camera-on", () => {
@@ -32,7 +33,7 @@ class Camera extends EventTarget {
       const track =
         this.receiverTrack ||
         this.pc?.getReceivers().find((r) => r.track.kind === "video")?.track;
-      if (track) {
+      if (track && this.pc?.connectionState === "connected") {
         this.remote = new MediaStream([track]);
         this.dispatchEvent(new Event("change"));
       }
@@ -130,15 +131,22 @@ class Camera extends EventTarget {
     };
     pc.ontrack = (e) => {
       this.receiverTrack = e.track;
-      if (this.remoteEnabled) {
+      if (this.remoteEnabled && pc.connectionState === "connected") {
         this.remote = new MediaStream([e.track]);
         this.remoteFrame = "";
         this.dispatchEvent(new Event("change"));
       }
     };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "connected")
+      if (this.pc !== pc) return;
+      if (pc.connectionState === "connected") {
+        if (this.remoteEnabled && this.receiverTrack) {
+          this.remote = new MediaStream([this.receiverTrack]);
+          this.remoteFrame = "";
+          this.dispatchEvent(new Event("change"));
+        }
         session.send({ type: this.active ? "camera-on" : "camera-off" });
+      }
       if (
         pc.connectionState === "failed" ||
         pc.connectionState === "disconnected"

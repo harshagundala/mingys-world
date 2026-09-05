@@ -34,7 +34,7 @@ try {
       {
         source: `
  window.__qa={sockets:[],peers:[],outgoing:[],messages:[],cameraRequests:[]};
- const NativeWS=window.WebSocket;window.WebSocket=class extends NativeWS{constructor(...args){super(...args);if(String(args[0]).includes('/api/ws')){window.__qa.sockets.push(this);this.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.state)window.__qa.state=m.state;if(m.type==='pose')window.__qa.partner=m.pose;window.__qa.messages.push(m.type);});}}send(raw){try{const m=JSON.parse(raw);if(m.type==='pose'){window.__qa.pose=m.pose;window.__qa.outgoing.push(m.pose);if(window.__qa.outgoing.length>400)window.__qa.outgoing.shift();}}catch{}return super.send(raw);}};
+ const NativeWS=window.WebSocket;window.WebSocket=class extends NativeWS{constructor(...args){super(...args);if(String(args[0]).includes('/api/ws')){window.__qa.sockets.push(this);this.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.state)window.__qa.state=m.state;if(m.type==='pose')window.__qa.partner=m.pose;window.__qa.messages.push(m.type);});}}send(raw){try{const m=JSON.parse(raw);if(window.__qa.blockDirect&&m.type==='rtc'){if(m.data.candidate)return;if(m.data.description){m.data.description.sdp=m.data.description.sdp.split('\\r\\n').filter(line=>!line.startsWith('a=candidate:')).join('\\r\\n');raw=JSON.stringify(m);}}if(m.type==='pose'){window.__qa.pose=m.pose;window.__qa.outgoing.push(m.pose);if(window.__qa.outgoing.length>400)window.__qa.outgoing.shift();}}catch{}return super.send(raw);}};
  const NativeRTC=window.RTCPeerConnection;window.RTCPeerConnection=class extends NativeRTC{constructor(...args){super(...args);window.__qa.peers.push(this);}};
  navigator.mediaDevices.getUserMedia=async constraints=>{window.__qa.cameraRequests.push(constraints);const c=document.createElement('canvas');c.width=320;c.height=240;let n=0;setInterval(()=>{const x=c.getContext('2d');x.fillStyle='${i ? "#9c687b" : "#487d66"}';x.fillRect(0,0,320,240);x.fillStyle='#ffeac4';x.font='24px sans-serif';x.fillText('Mingy ${i + 1}',80,100);x.fillRect((n++*7)%300,160,20,20);},80);return c.captureStream(12);};
  `,
@@ -138,6 +138,43 @@ try {
   log(
     "Production WebSocket reconnection preserves progress and restores both cameras",
   );
+  // Remove ICE candidates to model two laptops whose networks refuse a direct path.
+  for (const p of players) {
+    await p.eval(
+      `document.querySelector('[aria-label="Turn camera off"]').click()`,
+    );
+    await p.eval("window.__qa.blockDirect=true");
+  }
+  await a.eval(
+    "window.__qa.sockets.at(-1).close(4000,'QA blocked direct path')",
+  );
+  await sleep(3000);
+  for (const p of players)
+    await p.eval(
+      `document.querySelector('[aria-label="Turn camera on"]').click()`,
+    );
+  for (const p of players) {
+    await until(
+      p,
+      `[...document.querySelectorAll('.camera-tile img')].some(img=>getComputedStyle(img).display!=='none'&&img.naturalWidth>0&&img.src.startsWith('data:image/jpeg'))`,
+    );
+    assert.notEqual(
+      await p.eval("window.__qa.peers.at(-1).connectionState"),
+      "connected",
+    );
+  }
+  log(
+    "Both camera tiles receive live fallback frames with ICE candidates blocked",
+  );
+  for (const p of players) await p.eval("window.__qa.blockDirect=false");
+  await a.eval(
+    "window.__qa.sockets.at(-1).close(4000,'QA restore direct path')",
+  );
+  await until(a, "window.__qa.peers.at(-1)?.connectionState==='connected'");
+  await sleep(1500);
+  for (const p of players) assert.ok((await video(p)).inbound[0] > 5);
+  log("Direct video recovers after the blocked-network test");
+
   const { data } = await a.call(
     "Page.captureScreenshot",
     { format: "png" },

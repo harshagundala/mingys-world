@@ -66,25 +66,40 @@ export function addSurfaceDetail(
 function profile(mesh: THREE.Mesh, p: THREE.Vector3, n: THREE.Vector3) {
   const parent = mesh.parent?.name || "";
   if (parent.startsWith("Ear"))
-    return { length: 0.055, flow: new THREE.Vector3(0, -1, -0.12) };
+    return {
+      length: 0.035 + Math.max(0, -p.y) * 0.085,
+      flow: new THREE.Vector3(0, -1, -0.12),
+    };
   if (parent === "Tail")
-    return { length: 0.085, flow: new THREE.Vector3(0, -0.6, -1) };
+    return {
+      length: n.y < 0 ? 0.1 : 0.042,
+      flow: new THREE.Vector3(0, -0.6, -1),
+    };
   if (/^(Front|Back)/.test(parent))
     return {
-      length: p.y < -0.3 ? 0.011 : 0.033,
+      length: p.y < -0.36 ? 0.012 : 0.033,
       flow: new THREE.Vector3(0, -1, -0.22),
     };
-  if (parent === "Head") {
+  if (parent === "Head" || parent === "Jaw") {
     // Keep eyes, lip line and nose clear; feather the cheeks and crown.
-    const muzzle = p.z > 0.29 && p.y < 0.19;
-    const eye = p.z > 0.19 && p.y > 0.17 && p.y < 0.33;
+    const muzzle = p.z > 0.29 && p.y < 0.2;
+    const eye = p.z > 0.15 && p.y > 0.18 && p.y < 0.32 && Math.abs(p.x) > 0.1;
     return {
-      length: muzzle ? 0.006 : eye ? 0.009 : p.y < 0.13 ? 0.034 : 0.023,
+      length:
+        parent === "Jaw"
+          ? 0.006
+          : muzzle
+            ? 0.004
+            : eye
+              ? 0.004
+              : p.y < 0.13
+                ? 0.042
+                : 0.038,
       flow: new THREE.Vector3(p.x * 2.5, p.y > 0.26 ? 0.25 : -0.6, -0.65),
     };
   }
   return {
-    length: mesh.name === "Chest_bib" ? 0.065 : n.y > 0.45 ? 0.038 : 0.052,
+    length: n.y > 0.45 ? 0.048 : 0.065,
     flow: new THREE.Vector3(n.x * 0.16, -0.65, -0.85),
   };
 }
@@ -101,6 +116,7 @@ function groomGeometry(mesh: THREE.Mesh) {
   const surface = mesh.geometry.clone().applyMatrix4(mesh.matrix);
   const positions = surface.getAttribute("position"),
     normals = surface.getAttribute("normal"),
+    colors = surface.getAttribute("color"),
     index = surface.index;
   const triangles = (index?.count || positions.count) / 3;
   const areas = new Float64Array(triangles);
@@ -117,10 +133,11 @@ function groomGeometry(mesh: THREE.Mesh) {
     area += ab.subVectors(b, a).cross(ac.subVectors(c, a)).length() * 0.5;
     areas[i] = area;
   }
-  const count = Math.max(80, Math.min(18000, Math.round(area * 14500)));
+  const count = Math.max(80, Math.min(24000, Math.round(area * 14500)));
   const roots = new Float32Array(count * 3),
     ns = new Float32Array(count * 3),
     flows = new Float32Array(count * 3),
+    pigments = new Float32Array(count * 3),
     traits = new Float32Array(count * 4);
   let seed = 7919;
   const random = () => {
@@ -129,6 +146,7 @@ function groomGeometry(mesh: THREE.Mesh) {
   };
   const p = new THREE.Vector3(),
     n = new THREE.Vector3(),
+    pigment = new THREE.Vector3(),
     nb = new THREE.Vector3();
   for (let i = 0; i < count; i++) {
     const pick = random() * area;
@@ -147,10 +165,17 @@ function groomGeometry(mesh: THREE.Mesh) {
       weights = [1 - u, u * (1 - v), u * v];
     p.set(0, 0, 0);
     n.set(0, 0, 0);
+    pigment.set(0, 0, 0);
     for (let k = 0; k < 3; k++) {
       p.addScaledVector(a.fromBufferAttribute(positions, ids[k]), weights[k]);
       n.addScaledVector(nb.fromBufferAttribute(normals, ids[k]), weights[k]);
+      if (colors)
+        pigment.addScaledVector(
+          nb.fromBufferAttribute(colors, ids[k]),
+          weights[k],
+        );
     }
+    if (!colors) pigment.set(1, 1, 1);
     n.normalize();
     const { length, flow } = profile(mesh, p, n);
     flow.addScaledVector(n, -flow.dot(n));
@@ -161,6 +186,7 @@ function groomGeometry(mesh: THREE.Mesh) {
     p.toArray(roots, i * 3);
     n.toArray(ns, i * 3);
     flow.toArray(flows, i * 3);
+    pigment.toArray(pigments, i * 3);
     traits.set(
       [
         length * (guard ? 1.15 + random() * 0.3 : 0.52 + random() * 0.48),
@@ -204,6 +230,10 @@ function groomGeometry(mesh: THREE.Mesh) {
   );
   geometry.setAttribute("furNormal", new THREE.InstancedBufferAttribute(ns, 3));
   geometry.setAttribute(
+    "furPigment",
+    new THREE.InstancedBufferAttribute(pigments, 3),
+  );
+  geometry.setAttribute(
     "furFlow",
     new THREE.InstancedBufferAttribute(flows, 3),
   );
@@ -227,6 +257,7 @@ const vertexCommon = /* glsl */ `
 attribute vec3 furRoot;
 attribute vec3 furNormal;
 attribute vec3 furFlow;
+attribute vec3 furPigment;
 attribute vec4 furTraits;
 uniform vec3 furBend;
 uniform float furWidth;
@@ -234,6 +265,7 @@ varying vec3 vFiberTangent;
 varying vec3 vFiberNormal;
 varying vec3 vFiberTraits;
 varying vec2 vFiberUV;
+varying vec3 vFiberPigment;
 `;
 
 // Fiber-oriented reflection lobes inspired by Kajiya–Kay. This is a real-time
@@ -278,14 +310,14 @@ export function addFur(mesh: THREE.Mesh) {
     roughness: 0.62,
     metalness: 0,
     ior: 1.55,
-    sheen: 0.2,
+    sheen: 0.08,
     sheenColor: base.color,
     sheenRoughness: 0.65,
     side: THREE.DoubleSide,
     alphaTest: 0.12,
     alphaToCoverage: true,
   });
-  material.customProgramCacheKey = () => "mingy-fiber-groom-v3";
+  material.customProgramCacheKey = () => "mingy-fiber-groom-v4";
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, { furBend: bend, furWidth: width });
     shader.vertexShader = shader.vertexShader
@@ -303,7 +335,8 @@ export function addFur(mesh: THREE.Mesh) {
         vec3 G = normalize(furFlow);
         vec3 sideways = normalize(cross(N, G));
         // Fixed roots; curved tips flex under inertial load.
-        float phase = furTraits.z * 6.2831853;
+        // Nearby fibers share a soft wave, with small strand-level variation.
+        float phase = sin(dot(furRoot, vec3(85.0, 37.0, 63.0))) * 1.6 + furTraits.z * 0.6;
         float curl = sin(t * 5.0 + phase) - sin(phase);
         vec3 sway = furBend + vec3(0.0, -0.1, 0.0);
         vec3 center = furRoot + len * (N * (t - 0.35*t*t) + G * 0.75*t*t +
@@ -321,6 +354,7 @@ export function addFur(mesh: THREE.Mesh) {
         vFiberNormal = normalize(normalMatrix * N);
         vFiberTraits = furTraits.yzw;
         vFiberUV = uv;
+        vFiberPigment = furPigment;
       `,
       );
     shader.fragmentShader = shader.fragmentShader
@@ -328,7 +362,7 @@ export function addFur(mesh: THREE.Mesh) {
         "#include <common>",
         `#include <common>
         varying vec3 vFiberTangent; varying vec3 vFiberNormal;
-        varying vec3 vFiberTraits; varying vec2 vFiberUV;`,
+        varying vec3 vFiberTraits; varying vec2 vFiberUV; varying vec3 vFiberPigment;`,
       )
       .replace(
         "#include <lights_physical_pars_fragment>",
@@ -340,7 +374,7 @@ export function addFur(mesh: THREE.Mesh) {
         float edge = abs(vFiberUV.x * 2.0 - 1.0);
         float aa = max(fwidth(edge), 0.08);
         diffuseColor.a *= 1.0 - smoothstep(1.0 - aa, 1.0, edge);
-        diffuseColor.rgb *= mix(0.79, 1.13, vFiberTraits.y) * mix(0.81, 1.06, vFiberUV.y);
+        diffuseColor.rgb *= vFiberPigment * mix(0.79, 1.13, vFiberTraits.y) * mix(0.81, 1.06, vFiberUV.y);
         #include <alphatest_fragment>
       `,
       )

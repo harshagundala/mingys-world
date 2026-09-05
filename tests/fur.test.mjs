@@ -86,3 +86,36 @@ test("inertial fur stays bounded through movement, teleports and a suspended tab
   mesh.geometry.dispose();
   mesh.material.dispose();
 });
+
+test("strand pigment follows painted coat colors and remains neutral on unpainted meshes", () => {
+  const plain = puppyPart();
+  const neutral = plain.strands.geometry.getAttribute("furPigment");
+  assert.ok(neutral.array.every((v) => v === 1));
+  plain.coat.dispose();
+  plain.mesh.geometry.dispose();
+  plain.mesh.material.dispose();
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+  );
+  geometry.setAttribute(
+    "color",
+    new THREE.Float32BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1], 3),
+  );
+  geometry.computeVertexNormals();
+  const { mesh, coat, strands } = puppyPart(geometry);
+  const roots = strands.geometry.getAttribute("furRoot");
+  const pigments = strands.geometry.getAttribute("furPigment");
+  const p = new THREE.Vector3(),
+    c = new THREE.Vector3();
+  for (let i = 0; i < roots.count; i++) {
+    p.fromBufferAttribute(roots, i).sub(mesh.position).divide(mesh.scale);
+    c.fromBufferAttribute(pigments, i);
+    assert.ok(c.distanceTo(new THREE.Vector3(1 - p.x - p.y, p.x, p.y)) < 1e-5);
+  }
+  coat.dispose();
+  geometry.dispose();
+  mesh.material.dispose();
+});

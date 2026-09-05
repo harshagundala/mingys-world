@@ -1,5 +1,5 @@
 import { useGLTF } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
+import { createPortal, useFrame } from "@react-three/fiber";
 import { useMemo, useRef, useEffect } from "react";
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
@@ -13,12 +13,13 @@ export function Puppy({
   moving?: boolean | (() => boolean);
   scale?: number;
 }) {
-  const { scene } = useGLTF("/models/puppy-v3.glb");
-  const { model, owned, coats } = useMemo(() => {
+  const { scene } = useGLTF("/models/puppy-v4.glb");
+  const { model, owned, coats, eyelids } = useMemo(() => {
     const owned: THREE.Material[] = [];
     const coats: ReturnType<typeof addFur>[] = [];
     const m = clone(scene);
     const meshes: THREE.Mesh[] = [];
+    const eyelids: THREE.Mesh[] = [];
     m.traverse((o: any) => {
       if (o.isMesh) meshes.push(o);
     });
@@ -26,15 +27,19 @@ export function Puppy({
       o.castShadow = true;
       o.receiveShadow = true;
       const mat = o.material as THREE.MeshStandardMaterial;
-      if (o.parent?.name.startsWith("Blink") && mat.name !== "Catchlight") {
+      if (o.morphTargetDictionary?.Blink !== undefined) eyelids.push(o);
+      if (
+        ["Eye chocolate", "Amber iris", "Pupil"].includes(mat.name) &&
+        o.parent?.name.startsWith("Blink")
+      ) {
         const eye = new THREE.MeshPhysicalMaterial({
           color: mat.color,
+          vertexColors: mat.vertexColors,
           roughness: 0.16,
           clearcoat: 1,
           clearcoatRoughness: 0.06,
           ior: 1.38,
         });
-        if (mat.name === "Amber iris") eye.color.setRGB(0.09, 0.039, 0.019);
         o.material = eye;
         owned.push(eye);
       }
@@ -63,7 +68,7 @@ export function Puppy({
     }
     const head = m.getObjectByName("Head");
     if (head) head.scale.multiplyScalar(role === 0 ? 1.035 : 0.965);
-    return { model: m, owned, coats };
+    return { model: m, owned, coats, eyelids };
   }, [scene, role]);
   useEffect(
     () => () => {
@@ -123,9 +128,8 @@ export function Puppy({
     animate("EarR", "x", Math.sin(t * 11 + 0.3) * 0.2 * blend);
     animate("Jaw", "x", Math.sin(t * 4) * 0.035);
     const blink = Math.max(0, 1 - Math.abs((t % 4.7) - 4.42) / 0.095);
-    for (const n of ["BlinkL", "BlinkR"]) {
-      const b = bones[n];
-      if (b?.o && b.scale) b.o.scale.y = b.scale.y * (1 - blink * 0.95);
+    for (const lid of eyelids) {
+      lid.morphTargetInfluences![lid.morphTargetDictionary!.Blink] = blink;
     }
     if (body.current) {
       body.current.position.y =
@@ -139,66 +143,92 @@ export function Puppy({
   return (
     <group ref={body} scale={scale}>
       <primitive object={model} />
-      {role === 0 && (
-        <mesh position={[0, 0.69, 0.61]}>
-          <bufferGeometry>
-            <bufferAttribute
-              attach="attributes-position"
-              args={[
-                new Float32Array([
-                  -0.25, 0.1, 0, 0.25, 0.1, 0, 0, -0.25, 0.035,
-                ]),
-                3,
-              ]}
-            />
-          </bufferGeometry>
-          <meshPhysicalMaterial
-            color="#2d796b"
-            side={THREE.DoubleSide}
-            roughness={0.8}
-            sheen={0.65}
-            sheenColor="#94bba7"
-          />
-        </mesh>
-      )}
-      {role === 1 && (
-        <group
-          position={[0.28, 1.35, 0.43]}
-          rotation={[0.3, 0, -0.38]}
-          scale={1.4}
-        >
-          {[-1, 1].map((side) => (
-            <group
-              key={side}
-              position={[side * 0.064, 0, 0]}
-              rotation={[0, 0, side * 0.35]}
-            >
-              <mesh scale={[0.078, 0.053, 0.028]}>
-                <sphereGeometry args={[1, 24, 16]} />
-                <meshPhysicalMaterial
-                  color="#ba587d"
-                  roughness={0.6}
-                  sheen={1}
-                  sheenColor="#efb1c3"
-                />
-              </mesh>
-              <mesh
-                position={[side * 0.017, -0.084, 0]}
-                rotation={[0, 0, side * 0.25]}
-                scale={[0.035, 0.067, 0.012]}
+      {role === 0 && <Bandana />}
+      {role === 1 &&
+        createPortal(
+          <group rotation={[0.3, 0, -0.48]} scale={0.95}>
+            {[-1, 1].map((side) => (
+              <group
+                key={side}
+                position={[side * 0.064, 0, 0]}
+                rotation={[0, 0, side * 0.35]}
               >
-                <sphereGeometry args={[1, 20, 12]} />
-                <meshStandardMaterial color="#c76c8a" />
-              </mesh>
-            </group>
-          ))}
-          <mesh scale={[0.028, 0.029, 0.032]}>
-            <sphereGeometry args={[1, 20, 12]} />
-            <meshStandardMaterial color="#dc97ac" />
-          </mesh>
-        </group>
-      )}
+                <mesh scale={[0.078, 0.053, 0.028]}>
+                  <sphereGeometry args={[1, 24, 16]} />
+                  <meshPhysicalMaterial
+                    color="#ba587d"
+                    roughness={0.6}
+                    sheen={1}
+                    sheenColor="#efb1c3"
+                  />
+                </mesh>
+                <mesh
+                  position={[side * 0.017, -0.084, 0]}
+                  rotation={[0, 0, side * 0.25]}
+                  scale={[0.035, 0.067, 0.012]}
+                >
+                  <sphereGeometry args={[1, 20, 12]} />
+                  <meshStandardMaterial color="#c76c8a" />
+                </mesh>
+              </group>
+            ))}
+            <mesh scale={[0.028, 0.029, 0.032]}>
+              <sphereGeometry args={[1, 20, 12]} />
+              <meshStandardMaterial color="#dc97ac" />
+            </mesh>
+          </group>,
+          model.getObjectByName("BowAnchor")!,
+        )}
     </group>
   );
 }
-useGLTF.preload("/models/puppy-v3.glb");
+function Bandana() {
+  const geometry = useMemo(() => {
+    const vertices: number[] = [],
+      indices: number[] = [];
+    const rows = 12,
+      columns = 16;
+    for (let j = 0; j <= rows; j++) {
+      const v = j / rows;
+      for (let i = 0; i <= columns; i++) {
+        const u = i / columns;
+        vertices.push(
+          (u * 2 - 1) * 0.19 * (1 - v),
+          0.79 - v * 0.35,
+          0.63 +
+            Math.sin(v * Math.PI) * 0.02 +
+            Math.sin(u * Math.PI * 3) * Math.sin(v * Math.PI) * 0.012,
+        );
+        if (j < rows && i < columns) {
+          const a = j * (columns + 1) + i;
+          indices.push(
+            a,
+            a + columns + 1,
+            a + 1,
+            a + 1,
+            a + columns + 1,
+            a + columns + 2,
+          );
+        }
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+    g.setIndex(indices);
+    g.computeVertexNormals();
+    return g;
+  }, []);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return (
+    <mesh geometry={geometry} castShadow receiveShadow>
+      <meshPhysicalMaterial
+        color="#377f70"
+        side={THREE.DoubleSide}
+        roughness={0.9}
+        sheen={0.65}
+        sheenColor="#94bba7"
+      />
+    </mesh>
+  );
+}
+useGLTF.preload("/models/puppy-v4.glb");

@@ -716,6 +716,19 @@ button:active:not(:disabled) {
   position: relative;
   pointer-events: none;
   user-select: none;
+  transform-origin: center bottom;
+  transition:
+    transform 180ms ease-out,
+    box-shadow 180ms ease-out;
+}
+.camera-tile:not(.camera-idle) {
+  pointer-events: auto;
+}
+@media (hover: hover) and (pointer: fine) {
+  .camera-tile:not(.camera-idle):hover {
+    transform: scale(1.3);
+    box-shadow: 0 8px 26px #0005;
+  }
 }
 .camera-tile.role-1 {
   border-color: #d19bb2;

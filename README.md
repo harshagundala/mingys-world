@@ -19,7 +19,7 @@ Both players open https://mingy.world, choose a puppy, and press **Join our adve
 
 The expanded adventure targets roughly 55–75 minutes for two first-time players, depending on exploration and puzzle-solving pace. This is a design estimate, not a timed first-time human playtest. Progressive hints are optional, wrong answers do not cost lives, and the brief timed section can be retried. Refreshing or reconnecting preserves the case file. Touch controls are included; a laptop in Chrome or Edge gives the best experience.
 
-Open `/reset` and choose **Start a fresh adventure** to move the shared homepage to a new empty case. Connected players return to the welcome screen automatically. Both still use the same address. The reset page also links to the previous saved adventure.
+Open `/reset` and choose **Start a fresh adventure** to move the shared homepage to a new empty case. You return straight to the homepage after the reset succeeds, and connected players return to the welcome screen automatically. Both still use the same address. Previous adventures remain saved at their original room links.
 
 ## Runtime
 

@@ -7,11 +7,10 @@ export function Reset({
   authorized: boolean;
   error: string;
 }) {
-  const [ready, setReady] = useState(false),
-    [busy, setBusy] = useState(false),
-    [resetError, setResetError] = useState(""),
-    [previousRoom, setPreviousRoom] = useState("");
+  const [busy, setBusy] = useState(false),
+    [resetError, setResetError] = useState("");
   const create = async () => {
+    if (busy) return;
     setBusy(true);
     setResetError("");
     try {
@@ -22,15 +21,13 @@ export function Reset({
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Please try again.");
-      setPreviousRoom(result.previousRoom || "");
-      setReady(true);
+      location.replace("/");
     } catch (e) {
       setResetError(
         e instanceof Error
           ? e.message
           : "The house couldn’t connect. Try again.",
       );
-    } finally {
       setBusy(false);
     }
   };
@@ -59,7 +56,7 @@ export function Reset({
         </p>
         {!authorized ? (
           <p role="alert">{error || "Opening the house…"}</p>
-        ) : !ready ? (
+        ) : (
           <button
             className="button primary wide"
             onClick={create}
@@ -72,21 +69,6 @@ export function Reset({
               <ArrowUpRight size={18} />
             )}
           </button>
-        ) : (
-          <div className="fresh-invitation">
-            <p>Your new case is ready. Both Mingys can head straight in.</p>
-            <a className="button primary wide" href="/">
-              Enter our world <ArrowUpRight size={17} />
-            </a>
-            {previousRoom && (
-              <a
-                className="text-button"
-                href={`/#${new URLSearchParams({ room: previousRoom })}`}
-              >
-                Revisit the previous saved adventure
-              </a>
-            )}
-          </div>
         )}
         {resetError && <p role="alert">{resetError}</p>}
       </section>

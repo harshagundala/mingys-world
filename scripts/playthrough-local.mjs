@@ -594,9 +594,20 @@ try {
       await a.eval(
         `document.querySelector('[aria-label="Next memory"]').click()`,
       );
-      await sleep(75);
+      const expected = (i + 1) % 30;
+      for (const p of players) {
+        for (
+          let n = 0;
+          n < 80 && (await p.state()).snapshot.state.galleryIndex !== expected;
+          n++
+        )
+          await sleep(100);
+        assert.equal((await p.state()).snapshot.state.galleryIndex, expected);
+      }
     }
-    report("Both players reached ending and all 30 carousel positions visited");
+    report(
+      "Both players reached ending and all 30 shared carousel positions visited",
+    );
   }
   fs.writeFileSync(
     "output/playthrough-report.json",

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import {
   EffectComposer,
+  EffectGroup,
   Bloom,
   N8AO,
   Vignette,
@@ -60,15 +61,21 @@ export function Cinema({ lobby = false }: { lobby?: boolean }) {
         halfRes
         quality="performance"
       />
-      <Bloom
-        luminanceThreshold={1.05}
-        intensity={0.32}
-        mipmapBlur
-        luminanceSmoothing={0.4}
-      />
-      <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-      <FXAA />
-      <Vignette offset={0.22} darkness={0.32} />
+      <EffectGroup>
+        <Bloom
+          luminanceThreshold={1.05}
+          intensity={0.32}
+          mipmapBlur
+          luminanceSmoothing={0.4}
+        />
+        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      </EffectGroup>
+      {/* FXAA samples its input buffer. Give it tone-mapped colors so merging
+          the effects cannot replace mapped highlights with clipped HDR values. */}
+      <EffectGroup>
+        <FXAA />
+        <Vignette offset={0.22} darkness={0.32} />
+      </EffectGroup>
     </EffectComposer>
   );
 }

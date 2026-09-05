@@ -3,7 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef, useEffect } from "react";
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { addFur } from "./Fur";
+import { addFur, addSurfaceDetail } from "./Fur";
 export function Puppy({
   role = 0,
   moving = false,
@@ -13,9 +13,10 @@ export function Puppy({
   moving?: boolean | (() => boolean);
   scale?: number;
 }) {
-  const { scene } = useGLTF("/models/puppy-v2.glb");
-  const { model, owned } = useMemo(() => {
+  const { scene } = useGLTF("/models/puppy-v3.glb");
+  const { model, owned, coats } = useMemo(() => {
     const owned: THREE.Material[] = [];
+    const coats: ReturnType<typeof addFur>[] = [];
     const m = clone(scene);
     const meshes: THREE.Mesh[] = [];
     m.traverse((o: any) => {
@@ -25,6 +26,25 @@ export function Puppy({
       o.castShadow = true;
       o.receiveShadow = true;
       const mat = o.material as THREE.MeshStandardMaterial;
+      if (o.parent?.name.startsWith("Blink") && mat.name !== "Catchlight") {
+        const eye = new THREE.MeshPhysicalMaterial({
+          color: mat.color,
+          roughness: 0.16,
+          clearcoat: 1,
+          clearcoatRoughness: 0.06,
+          ior: 1.38,
+        });
+        if (mat.name === "Amber iris") eye.color.setRGB(0.09, 0.039, 0.019);
+        o.material = eye;
+        owned.push(eye);
+      }
+      if (mat.name === "Nose velvet") {
+        const nose = mat.clone();
+        nose.roughness = 0.38;
+        addSurfaceDetail(nose, o, true);
+        o.material = nose;
+        owned.push(nose);
+      }
       if (mat.name === "Collar") {
         const c = mat.clone();
         c.color.set(role === 0 ? "#377f70" : "#b96885");
@@ -35,18 +55,22 @@ export function Puppy({
         const c = mat.clone();
         if (role === 1) c.color.lerp(new THREE.Color("#f2d393"), 0.17);
         o.material = c;
-        owned.push(c, addFur(o));
+        c.roughness = 0.94;
+        addSurfaceDetail(c, o);
+        owned.push(c);
+        coats.push(addFur(o));
       }
     }
     const head = m.getObjectByName("Head");
     if (head) head.scale.multiplyScalar(role === 0 ? 1.035 : 0.965);
-    return { model: m, owned };
+    return { model: m, owned, coats };
   }, [scene, role]);
   useEffect(
     () => () => {
       owned.forEach((m) => m.dispose());
+      coats.forEach((coat) => coat.dispose());
     },
-    [owned],
+    [owned, coats],
   );
   const bones = useMemo(
     () =>
@@ -72,7 +96,7 @@ export function Puppy({
   );
   const body = useRef<THREE.Group>(null);
   const walk = useRef(0);
-  useFrame(({ clock }, dt) => {
+  useFrame(({ clock, camera }, dt) => {
     const t = clock.elapsedTime + role * 1.3,
       w = typeof moving === "function" ? moving() : moving;
     walk.current = THREE.MathUtils.damp(walk.current, w ? 1 : 0, 9, dt);
@@ -108,6 +132,8 @@ export function Puppy({
         Math.abs(Math.sin(t * 11)) * 0.025 * blend +
         Math.sin(t * 2) * 0.009 * (1 - blend);
       body.current.rotation.z = Math.sin(t * 11) * 0.013 * blend;
+      body.current.updateWorldMatrix(true, true);
+      coats.forEach((coat) => coat.update(dt, camera));
     }
   });
   return (
@@ -175,4 +201,4 @@ export function Puppy({
     </group>
   );
 }
-useGLTF.preload("/models/puppy-v2.glb");
+useGLTF.preload("/models/puppy-v3.glb");

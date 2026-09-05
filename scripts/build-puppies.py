@@ -40,24 +40,22 @@ nt=ell('Heart shaped nose',(0,-.393,.127),(.085,.043,.053),nose,head);nt.rotatio
 for side in [-1,1]:
  ell('Nostril',(side*.047,-.430,.13),(.021,.008,.011),pupil,head)
  curve('Smile crease',[(side*.014,-.405,.075),(side*.026,-.408,.022),(side*.095,-.367,-.006),(side*.15,-.30,.013)],.006,mouth,head)
- ell('Eye rim',(side*.178,-.280,.255),(.078,.031,.081),nose,head)
- blink=empty('BlinkL' if side<0 else 'BlinkR',(side*.178,-.300,.257),head)
- ell('Wet eye',(0,0,0),(.064,.035,.067),eye,blink)
- ell('Amber iris',(side*-.007,-.03,.001),(.039,.01,.046),iris,blink)
- ell('Round pupil',(side*-.008,-.039,.004),(.024,.007,.034),pupil,blink)
+ ell('Eye rim',(side*.178,-.267,.255),(.070,.006,.068),nose,head)
+ blink=empty('BlinkL' if side<0 else 'BlinkR',(side*.178,-.275,.257),head)
+ ell('Wet eye',(0,0,0),(.064,.020,.061),eye,blink)
+ ell('Amber iris',(side*-.007,-.017,.001),(.045,.006,.048),iris,blink)
+ ell('Round pupil',(side*-.008,-.024,.004),(.030,.004,.038),pupil,blink)
  for k in range(12):
-  a=k*math.tau/12;ell('Iris fleck',(math.cos(a)*.032-side*.007,-.04,math.sin(a)*.038),(.003,.0018,.008),gold,blink,12)
- ell('Large eye glint',(-.017,-.044,.026),(.014,.008,.014),glint,blink,16);ell('Soft eye glint',(.018,-.045,-.019),(.006,.003,.006),glint,blink,12)
+  a=k*math.tau/12;ell('Iris fleck',(math.cos(a)*.038-side*.007,-.025,math.sin(a)*.041),(.0017,.0009,.004),iris,blink,12)
+ ell('Large eye glint',(-.017,-.029,.026),(.009,.004,.010),glint,blink,16);ell('Soft eye glint',(.018,-.029,-.019),(.004,.002,.004),glint,blink,12)
  curve('Expressive eyebrow',[(side*.105,-.20,.347),(side*.173,-.227,.359),(side*.23,-.188,.329)],.024,cream,head)
  ear=empty('EarL' if side<0 else 'EarR',(side*.266,.02,.276),head)
  union('Silky floppy ear',[ell('ear',(side*.046,.02,-.15),(.10,.152,.237),earfur,ear),ell('ear tip',(side*.052,.02,-.302),(.074,.114,.088),earfur,ear)],earfur,ear)
- for k in range(7):
-  t=k/6;curve('Ear feather',[(side*.045+(t-.5)*.105,-.087,-.1),(side*.05+(t-.5)*.10,-.1,-.25),(side*.055+(t-.5)*.08,-.065,-.37-random.random()*.035)],.009,fur,ear)
+ # Silky ear feathering is supplied by the strand groom.
  for k in range(3):
   curve('Whisker',[(side*.11,-.385,.042-k*.015),(side*.20,-.36,.05-k*.024),(side*(.29+k*.02),-.30,.067-k*.026)],.0014,stitch,head)
   ell('Whisker pore',(side*(.13-k*.018),-.394,.058-k*.018),(.004,.003,.004),nose,head,12)
- for k in range(4):
-  tuft=ell('Cheek feather',(side*(.239+k*.012),-.097,.02-k*.028),(.052,.087,.043),cream,head);tuft.rotation_euler[1]=side*.45
+ # The real-time groom now supplies cheek feathering without solid clumps.
 jaw=empty('Jaw',(0,-.255,-.036),head)
 ell('Little tongue',(0,-.072,-.017),(.047,.06,.012),tongue,jaw);curve('Tongue groove',[(0,-.124,-.004),(0,-.084,-.003)],.0017,mouth,jaw)
 for side in [-1,1]:
@@ -72,7 +70,7 @@ for side in [-1,1]:
   ell('Heart paw pad',(0,-.043,-.474),(.063,.06,.009),pads,leg)
 tail=empty('Tail',(0,.51,.76),root)
 union('Feathered tail',[ell('tail section',(0,j*.073,j*.052),(.096-j*.009,.115,.085-j*.007),fur if j<4 else cream,tail) for j in range(7)],fur,tail)
-for j in range(8):curve('Tail fringe',[(0,j*.047,j*.035),(.03,j*.047+.05,j*.035-.09),(.02,j*.047+.10,j*.035-.12)],.018,cream,tail)
+# The tail's soft plume is made of individual curved guard hairs in the browser.
 # Leather collar, two rows of embroidery, buckle and engraved tag.
 bpy.ops.mesh.primitive_torus_add(major_radius=.238,minor_radius=.033,major_segments=64,minor_segments=12);o=bpy.context.object;o.name='Leather collar';o.parent=root;o.location=(0,-.355,.815);o.rotation_euler[0]=math.pi/2;o.data.materials.append(collar)
 for i in range(32):
@@ -95,6 +93,6 @@ for key,objects in groups.items():
   for o in objects:o.select_set(True)
   bpy.context.view_layer.objects.active=objects[0];bpy.ops.object.join();objects[0].name=key[0]+' '+key[1]
 os.makedirs('public/models',exist_ok=True);os.makedirs('output/v2',exist_ok=True)
-bpy.ops.export_scene.gltf(filepath=os.path.abspath('public/models/puppy-v2.glb'),export_format='GLB',export_yup=True)
-bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath('output/v2/puppy-sculpt.blend'))
+bpy.ops.export_scene.gltf(filepath=os.path.abspath('public/models/puppy-v3.glb'),export_format='GLB',export_yup=True)
+bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath('output/v2/puppy-sculpt-v3.blend'))
 print('SCULPT EXPORTED')

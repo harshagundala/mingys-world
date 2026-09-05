@@ -286,7 +286,7 @@ void RE_Direct_Fiber(const in IncidentLight directLight, const in vec3 geometryP
   float primary = pow(sqrt(max(0.0, 1.0 - pow(dot(normalize(T + N * 0.08), H), 2.0))), 72.0);
   float secondary = pow(sqrt(max(0.0, 1.0 - pow(dot(normalize(T - N * 0.12), H), 2.0))), 24.0);
   float fresnel = 0.0465 + 0.9535 * pow(1.0 - max(0.0, dot(V, H)), 5.0);
-  float rootOcclusion = mix(0.48, 1.0, smoothstep(0.0, 0.8, vFiberUV.y));
+  float rootOcclusion = mix(0.75, 1.0, smoothstep(0.0, 0.8, vFiberUV.y));
   vec3 pigment = material.diffuseContribution;
   reflectedLight.directDiffuse += directLight.color * pigment * RECIPROCAL_PI * fiberNL * visibility * rootOcclusion * (1.0 - fresnel);
   reflectedLight.directSpecular += directLight.color * fiberNL * visibility * rootOcclusion *
@@ -315,7 +315,8 @@ export function addFur(mesh: THREE.Mesh) {
     sheenRoughness: 0.65,
     side: THREE.DoubleSide,
     alphaTest: 0.12,
-    alphaToCoverage: true,
+    transparent: true,
+    alphaToCoverage: false,
   });
   material.customProgramCacheKey = () => "mingy-fiber-groom-v4";
   material.onBeforeCompile = (shader) => {
@@ -374,7 +375,7 @@ export function addFur(mesh: THREE.Mesh) {
         float edge = abs(vFiberUV.x * 2.0 - 1.0);
         float aa = max(fwidth(edge), 0.08);
         diffuseColor.a *= 1.0 - smoothstep(1.0 - aa, 1.0, edge);
-        diffuseColor.rgb *= vFiberPigment * mix(0.79, 1.13, vFiberTraits.y) * mix(0.81, 1.06, vFiberUV.y);
+        diffuseColor.rgb *= vFiberPigment * mix(0.9, 1.08, vFiberTraits.y) * mix(0.92, 1.04, vFiberUV.y);
         #include <alphatest_fragment>
       `,
       )
@@ -389,8 +390,13 @@ export function addFur(mesh: THREE.Mesh) {
   const fur = new THREE.Mesh(geometry, material);
   fur.name = `Silken strands · ${mesh.name}`;
   fur.receiveShadow = true;
-  // The sculpt supplies stable cast shadows. Depth-writing cutouts avoid sorting
-  // artifacts and do not need another shadow pass for subpixel ribbons.
+  // Screen-space AO mistakes the subpixel groom for coarse surface cavities.
+  // Use the groom's root occlusion and the sculpt's real light shadows instead.
+  mesh.userData.cannotReceiveAO = true;
+  fur.userData.cannotReceiveAO = true;
+  fur.userData.treatAsOpaque = true;
+  // Depth-writing cores keep the groom stable; blended edges remain smooth in
+  // both multisampled and performance-mode postprocessing targets.
   mesh.parent!.add(fur);
   const center = geometry.boundingSphere!.center;
   const previous = new THREE.Vector3(),

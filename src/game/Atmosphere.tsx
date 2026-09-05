@@ -52,7 +52,10 @@ export function Cinema({ lobby = false }: { lobby?: boolean }) {
       Object.assign(window, { __mingyGraphics: { renderer: gl, scene } });
   }, [gl]);
   return (
-    <EffectComposer multisampling={0} resolutionScale={smooth ? 0.7 : 1}>
+    <EffectComposer
+      multisampling={smooth ? 0 : 4}
+      resolutionScale={smooth ? 0.7 : 1}
+    >
       <N8AO
         enabled={!smooth && !lobby}
         aoRadius={0.4}

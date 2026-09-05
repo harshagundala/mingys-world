@@ -54,6 +54,8 @@ try {
       },
       true,
     );
+    // Allow hash navigation to commit before reloading the application bootstrap.
+    await sleep(650);
     await p.call("Page.reload", {}, true);
     await until(
       p,

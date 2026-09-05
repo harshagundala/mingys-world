@@ -49,7 +49,7 @@ class Camera extends EventTarget {
     if (this.active) return;
     if (!navigator.mediaDevices?.getUserMedia) {
       const error = new Error(
-        "Camera access is unavailable in this browser preview. Open your invitation directly in Chrome or Edge, then choose Enable camera.",
+        "Camera access is unavailable in this browser preview. Open the game directly in Chrome or Edge, then choose Enable camera.",
       );
       error.name = "CameraUnavailableError";
       throw error;

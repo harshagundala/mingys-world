@@ -63,10 +63,9 @@ if (import.meta.env.DEV)
   });
 const World = lazy(() => import("./game/World"));
 const parsed = new URLSearchParams(location.hash.slice(1));
-let invite =
-  parsed.get("invite") || sessionStorage.getItem("mingy-invite") || "";
-const invitedRoom = parsed.get("room") || "";
-if (invite) sessionStorage.setItem("mingy-invite", invite);
+const linkedRoom = parsed.get("room") || "";
+const invitedRoom = /^[a-zA-Z0-9_-]{20,64}$/.test(linkedRoom) ? linkedRoom : "";
+const shareUrl = `${location.origin}/${invitedRoom ? `#${new URLSearchParams({ room: invitedRoom })}` : ""}`;
 class Boundary extends Component<
   { children: React.ReactNode },
   { error: boolean }
@@ -97,11 +96,9 @@ function App() {
   const s = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const [auth, setAuth] = useState(false),
     [authError, setAuthError] = useState(""),
-    [playing, setPlaying] = useState(false),
-    [role, setRole] = useState<Role>(0),
-    [room, setRoom] = useState(
-      invitedRoom || localStorage.getItem("mingy-last-room") || "",
-    );
+    [playing, setPlaying] = useState(false);
+  const role = s.role;
+  const room = s.room || invitedRoom;
   const [near, setNear] = useState<string | null>(null),
     [panel, setPanel] = useState<string | null>(null),
     [tutorial, setTutorial] = useState(false),
@@ -128,27 +125,15 @@ function App() {
   useEffect(() => {
     async function authenticate() {
       try {
-        const result = await fetch(
-          invite ? "/api/session" : "/api/session?invitation=1",
-          invite
-            ? {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ invite }),
-              }
-            : {},
-        );
+        const result = await fetch("/api/session");
         const data = await result.json();
-        if (data.authorized) {
-          if (!invite && data.invite) {
-            invite = data.invite;
-            sessionStorage.setItem("mingy-invite", invite);
-          }
+        if (result.ok && data.authorized) {
           setAuth(true);
           setAuthError("");
         } else
           setAuthError(
-            "This is a private little world. Open the invitation link your Mingy shared.",
+            data.error ||
+              "The house is reconnecting. Please refresh in a moment.",
           );
       } catch {
         setAuthError(
@@ -201,8 +186,10 @@ function App() {
     }
   }, [s.state]);
   useEffect(() => {
-    if (s.status === "connected")
+    if (s.status === "connected") {
       localStorage.setItem(`mingy-room-role-${s.room}`, String(s.role));
+      localStorage.setItem("mingy-last-role", String(s.role));
+    }
   }, [s.status, s.room, s.role]);
   useEffect(() => {
     if (s.status === "connected" && s.otherOnline) void camera.connect();
@@ -307,32 +294,27 @@ function App() {
     setMusicScene(s.place, s.state?.chapter || 0);
   }, [s.place, s.state?.chapter]);
   const enter = (chosen: Role, fresh: boolean) => {
+    if (fresh) {
+      location.assign("/reset");
+      return;
+    }
     if (!audioOn)
       void toggleAudio()
         .then(setAudioOn)
         .catch(() => {});
-    let r = room;
-    if (fresh || !r)
-      r = Array.from(crypto.getRandomValues(new Uint8Array(16)), (n) =>
-        n.toString(16).padStart(2, "0"),
-      ).join("");
-    setRoom(r);
-    setRole(chosen);
     setPlaying(true);
     setTutorial(true);
     setEndHidden(false);
     lastChapter.current = -1;
-    localStorage.setItem("mingy-last-room", r);
-    localStorage.setItem("mingy-last-role", String(chosen));
     history.replaceState(
       null,
       "",
-      `/#${new URLSearchParams({ ...(invite ? { invite } : {}), room: r })}`,
+      invitedRoom ? `/#${new URLSearchParams({ room: invitedRoom })}` : "/",
     );
-    session.enter(r, chosen);
+    session.enter(invitedRoom, chosen);
   };
   const share = async () => {
-    const url = `${location.origin}/#${new URLSearchParams({ ...(invite ? { invite } : {}), room })}`;
+    const url = shareUrl;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
@@ -363,7 +345,7 @@ function App() {
         e.name === "CameraUnavailableError"
           ? e.message
           : e.name === "NotAllowedError" || e.name === "SecurityError"
-            ? "Camera access is blocked. Allow Camera in your browser’s site permissions, then try again. If you are in an embedded preview, open the invitation directly in Chrome."
+            ? "Camera access is blocked. Allow Camera in your browser’s site permissions, then try again. If you are in an embedded preview, open the game directly in Chrome."
             : e.name === "NotFoundError"
               ? "This browser cannot find a camera. Connect one and try again."
               : "The camera is busy or unavailable. Turn off video in your other call or app, then try again. Keep that call open for audio.";
@@ -374,18 +356,18 @@ function App() {
     }
   };
   if (location.pathname === "/reset")
-    return <Reset authorized={auth} invite={invite} error={authError} />;
+    return <Reset authorized={auth} error={authError} />;
   if (!playing)
     return (
       <Lobby
         authorized={auth}
         authError={authError}
         onEnter={enter}
-        room={room}
         initialRole={
           Number(
             localStorage.getItem(`mingy-room-role-${room}`) ??
-              (invitedRoom ? "1" : "0"),
+              localStorage.getItem("mingy-last-role") ??
+              "0",
           ) as Role
         }
       />
@@ -474,8 +456,8 @@ function App() {
             <HelpCircle />
           </button>
           <button
-            aria-label="Share invitation"
-            title="Copy private invitation"
+            aria-label="Share game link"
+            title="Copy game link"
             onClick={share}
           >
             {copied ? <Check /> : <Share2 />}
@@ -523,7 +505,9 @@ function App() {
       </section>
       {!s.otherOnline && s.status === "connected" && (
         <div className="invite-card">
-          <span>A mystery is better with your Mingy.</span>
+          <span>
+            Your Mingy can open this same address. You’ll connect automatically.
+          </span>
           <button onClick={share}>
             {copied ? (
               <>
@@ -531,7 +515,7 @@ function App() {
               </>
             ) : (
               <>
-                <Copy size={14} /> Copy their invitation
+                <Copy size={14} /> Copy game link
               </>
             )}
           </button>
@@ -690,12 +674,12 @@ function App() {
                 setTutorial(false);
               }}
             >
-              Choose a puppy again
+              Back to the welcome screen
             </button>
           </section>
         </div>
       )}
-      {tutorial && (
+      {tutorial && s.status !== "error" && (
         <div className="modal-backdrop">
           <section className="modal tutorial">
             <button
@@ -950,13 +934,13 @@ function App() {
             {panel === "share" && (
               <>
                 <p>
-                  Send this private link to your Mingy. They can choose the
-                  other collar and join your room.
+                  Open this same address on your other device. Choose a puppy
+                  and press play; the game connects you automatically.
                 </p>
                 <textarea
                   className="share-url"
                   readOnly
-                  value={`${location.origin}/#${new URLSearchParams({ ...(invite ? { invite } : {}), room })}`}
+                  value={shareUrl}
                   onFocus={(e) => e.currentTarget.select()}
                 />
               </>

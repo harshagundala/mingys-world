@@ -1,10 +1,10 @@
 # Mingy’s World
 
-A private browser mystery for two golden retriever puppies. Built for a long-distance date, with a fully explorable 3D house, original Blender puppy models, cooperative evidence, camera tiles, and a personal photo ending.
+A browser mystery for two golden retriever puppies. Built for a long-distance date, with a fully explorable 3D house, original Blender puppy models, cooperative evidence, camera tiles, and a personal photo ending.
 
 ## Playing (no spoilers)
 
-Open the private invitation, choose your collar, and enter. Copy the in-game invitation for your partner; they choose the other collar. Keep your existing call open for audio. Choose **Enable camera** on the welcome card for a live preview. The camera button in the top right remains available while playing. Camera capture is video only.
+Both players open https://mingy.world, choose a puppy, and press **Join our adventure**. The server pairs the first two browsers into the same saved adventure and assigns the available puppy if both choose the same one. Each browser remembers its puppy when reconnecting; an extra tab replaces its own previous connection, while a third device cannot displace either player. Keep your existing call open for audio. Choose **Enable camera** on the welcome card for a live preview. The camera button in the top right remains available while playing. Camera capture is video only.
 
 - Arrow keys or WASD: move
 - Space: jump
@@ -19,14 +19,14 @@ Open the private invitation, choose your collar, and enter. Copy the in-game inv
 
 The expanded adventure targets roughly 55–75 minutes for two first-time players, depending on exploration and puzzle-solving pace. This is a design estimate, not a timed first-time human playtest. Progressive hints are optional, wrong answers do not cost lives, and the brief timed section can be retried. Refreshing or reconnecting preserves the case file. Touch controls are included; a laptop in Chrome or Edge gives the best experience.
 
-Open `/reset` in your authenticated browser (or append the invitation fragment) to create a new empty adventure. Share the generated link with your partner. The old adventure remains saved at its original room link.
+Open `/reset` and choose **Start a fresh adventure** to move the shared homepage to a new empty case. Connected players return to the welcome screen automatically. Both still use the same address. The reset page also links to the previous saved adventure.
 
 ## Runtime
 
 - React, Three.js / React Three Fiber, and Rapier physics. Sculpted, articulated puppies with instanced fur, physically based surfaces, baked material batches for static furniture, contact shadows, bloom, animated water, and an adaptive original Web Audio score.
 - Native Vercel WebSockets, with an isolated Upstash Redis database for shared state, presence, locks, and cross-instance fan-out.
 - WebRTC peer-to-peer video and an unordered data channel for fast avatar movement. WebSockets provide signaling and server-validated progress. Avatar updates and small JPEG camera frames continue over WebSocket if a direct route is blocked. No audio capture, audio transceiver, or recording.
-- A random invitation is exchanged for an HttpOnly session cookie. Photos are served by an authenticated API, never as public static files. Room access is limited to two puppy roles. Personal images are excluded from Git, and exported images contain no EXIF metadata.
+- The homepage and photo API are public; no invitation, account or cookie is needed. Atomic, expiring seat reservations limit each adventure to two active puppies. Personal images are excluded from Git, and exported images contain no EXIF metadata.
 
 ## Local development
 
@@ -38,9 +38,9 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Configure `REDIS_URL` and a random `WORLD_SECRET` in `.env.local`. Vercel’s linked integration supplies Redis in the deployed environments. Open the local origin with `#invite=YOUR_WORLD_SECRET` for initial access.
+Configure `REDIS_URL` in `.env.local`. Vercel’s linked integration supplies Redis in the deployed environments. Set `MINGY_WORLD_KEY` to a unique local QA namespace when testing public pairing or reset against the same Redis database. Open the local origin directly.
 
-Original photographs stay in the local `pictures/` directory. `node scripts/prepare-photos.mjs` converts the supplied HEIC images on macOS into authenticated gallery assets and thumbnails. `scripts/build-puppies.py` builds and exports the original puppy with Blender. The resulting GLB is included in the source repository.
+Original photographs stay in the local `pictures/` directory. `node scripts/prepare-photos.mjs` converts the supplied HEIC images on macOS into gallery assets and thumbnails. `scripts/build-puppies.py` builds and exports the original puppy with Blender. The resulting GLB is included in the source repository.
 
 ```sh
 npm test
@@ -48,7 +48,7 @@ npm run build
 vercel deploy --prod --scope harshagberkeleyedus-projects
 ```
 
-The `.env` files, original photos, gallery exports, and test screenshots are not committed. A deploy must be made from a checkout containing `private-assets/photos/`; Vercel bundles that directory only into the protected photo function.
+The `.env` files, original photos, gallery exports, and test screenshots are not committed. A deploy must be made from a checkout containing `private-assets/photos/`; Vercel bundles that directory only into the photo function.
 
 ## Validation
 

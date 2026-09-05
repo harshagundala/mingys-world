@@ -344,6 +344,12 @@ button:active:not(:disabled) {
   color: #acbcad;
   margin: 8px 0;
 }
+.lobby-pairing {
+  margin: 10px 0 0;
+  color: #bac9bb;
+  font-size: 11px;
+  line-height: 1.5;
+}
 .lobby-meta {
   display: flex;
   align-items: center;

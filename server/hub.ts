@@ -2,18 +2,16 @@ import Redis from "ioredis";
 import { randomUUID } from "node:crypto";
 import { initialState, reduceAction, travelTarget } from "./rules.ts";
 import type { Pose, GameState } from "./rules.ts";
-import { authorized } from "./auth.ts";
-const url = process.env.REDIS_URL || process.env.KV_URL;
-const redis = new Redis(url || "redis://127.0.0.1:6379", {
-  maxRetriesPerRequest: 2,
-  connectTimeout: 8000,
-  lazyConnect: true,
-});
-redis.on("error", () => {});
+import { redis, roomKey as key, publicRoom, publicEvents } from "./store.ts";
+import {
+  chooseSeat,
+  seatKey,
+  savePoseScript,
+  releaseSeatScript,
+} from "./seats.ts";
 const instance = randomUUID(),
   rooms = new Map<string, Set<any>>();
 let subscriber: Redis | null = null;
-const key = (room: string) => `mingy:v1:${room}`;
 function send(ws: any, data: any) {
   if (ws.readyState !== 1) return;
   const volatile = data.type === "pose" || data.type === "camera";
@@ -38,10 +36,22 @@ async function subscribe(room: string) {
       const room = channel.split(":")[2];
       try {
         const data = JSON.parse(raw);
+        if (channel === publicEvents) {
+          for (const connections of rooms.values())
+            for (const ws of connections) if (ws.followPublic) send(ws, data);
+          return;
+        }
+        if (data.type === "replace-connection") {
+          for (const ws of rooms.get(room) || [])
+            if (ws.connectionId === data.connectionId)
+              ws.close(4410, "Puppy moved to another tab");
+          return;
+        }
         for (const ws of rooms.get(room) || [])
           if (data.exclude !== ws.connectionId) send(ws, data);
       } catch {}
     });
+    await subscriber.subscribe(publicEvents);
   }
   await subscriber.subscribe(`${key(room)}:events`);
 }
@@ -86,10 +96,6 @@ async function mutate(
   }
 }
 export function attachSocket(ws: any, req: any) {
-  if (!authorized(req)) {
-    ws.close(4401, "Private invitation required");
-    return;
-  }
   let room = "",
     role = -1,
     id = "",
@@ -107,6 +113,34 @@ export function attachSocket(ws: any, req: any) {
     lastCam = 0,
     joining = false;
   ws.connectionId = randomUUID();
+  let disconnected = false;
+  const savePose = () =>
+    redis.eval(
+      savePoseScript,
+      3,
+      seatKey(key(room), role),
+      `${key(room)}:pose:${role}`,
+      `${key(room)}:lastpose:${role}`,
+      ws.connectionId,
+      JSON.stringify({ ...pose, time: Date.now() }),
+    );
+  async function release() {
+    if (!room || role < 0) return;
+    await redis.eval(
+      releaseSeatScript,
+      3,
+      seatKey(key(room), role),
+      `${key(room)}:pose:${role}`,
+      `${key(room)}:events`,
+      ws.connectionId,
+      JSON.stringify({
+        type: "left",
+        role,
+        exclude: ws.connectionId,
+        instance,
+      }),
+    );
+  }
   let actionQueue = Promise.resolve();
   const helloTimeout = setTimeout(() => {
     if (!room) ws.close(4408, "Join timed out");
@@ -114,39 +148,64 @@ export function attachSocket(ws: any, req: any) {
   const heartbeat = setInterval(() => {
     if (room) {
       send(ws, { type: "ping", at: Date.now() });
-      void redis
-        .set(
-          `${key(room)}:pose:${role}`,
-          JSON.stringify({ ...pose, time: Date.now() }),
-          "EX",
-          15,
-        )
-        .catch(() => {});
+      void savePose().catch(() => {});
     }
   }, 4000);
   async function handle(a: any) {
+    if (disconnected) return;
     if (a.type === "join" && !room && !joining) {
       joining = true;
       if (
-        !/^[a-zA-Z0-9_-]{20,64}$/.test(a.room) ||
+        (a.room && !/^[a-zA-Z0-9_-]{20,64}$/.test(a.room)) ||
         ![0, 1].includes(a.role) ||
         !/^[a-f0-9-]{36}$/.test(a.playerId)
       ) {
         ws.close(4400, "Invalid room");
         return;
       }
-      const target = a.room;
+      const target = a.room || (await publicRoom());
+      ws.followPublic = !a.room;
       let conflict = false;
       const result = await mutate(target, async (s) => {
-        const existing = s.players[a.role];
-        const live = await redis.get(`${key(target)}:pose:${a.role}`);
-        if (existing && existing.id !== a.playerId && live) {
+        if (disconnected) throw new Error("Connection closed");
+        const live = await redis.mget(
+          seatKey(key(target), 0),
+          seatKey(key(target), 1),
+          `${key(target)}:pose:0`,
+          `${key(target)}:pose:1`,
+        );
+        const assigned = chooseSeat(
+          s.players,
+          [!!(live[0] || live[2]), !!(live[1] || live[3])],
+          a.playerId,
+          a.role,
+        );
+        if (assigned === null) {
           conflict = true;
           return { state: s };
         }
-        s.players[a.role] = {
+        room = target;
+        role = assigned;
+        id = a.playerId;
+        const previous = await redis.mget(
+          `${key(room)}:pose:${role}`,
+          `${key(room)}:lastpose:${role}`,
+        );
+        if (previous[0] || previous[1])
+          pose = JSON.parse((previous[0] || previous[1])!);
+        else pose.x = role === 0 ? -0.8 : 0.8;
+        // Reserve before releasing the room lock: two simultaneous arrivals
+        // cannot both win the same puppy during the welcome handshake.
+        await redis.set(seatKey(key(room), role), ws.connectionId, "EX", 15);
+        await savePose();
+        if (live[role])
+          await relay(room, {
+            type: "replace-connection",
+            connectionId: live[role],
+          });
+        s.players[role] = {
           id: a.playerId,
-          name: a.role === 0 ? "Golden boy" : "Golden girl",
+          name: role === 0 ? "Golden boy" : "Golden girl",
         };
         s.version++;
         return { state: s };
@@ -156,41 +215,37 @@ export function attachSocket(ws: any, req: any) {
           type: "error",
           fatal: true,
           message:
-            "That puppy is already in this room. Choose the other collar, or wait a few seconds for the old connection to leave.",
+            "Both puppies are already playing. Close the game on an extra device, then try again.",
         });
         ws.close(4409, "Puppy taken");
         return;
       }
-      room = target;
-      role = a.role;
-      id = a.playerId;
-      const previous = await redis.get(`${key(room)}:pose:${role}`);
-      if (previous) pose = JSON.parse(previous);
-      else pose.x = role === 0 ? -0.8 : 0.8;
+      if (disconnected) {
+        await release();
+        return;
+      }
       if (!rooms.has(room)) rooms.set(room, new Set());
       rooms.get(room)!.add(ws);
       await subscribe(room);
       clearTimeout(helloTimeout);
       send(ws, {
         type: "welcome",
+        room,
         state: result.state,
         role,
         pose,
         poses: await getPoses(room),
       });
       pose.time = Date.now();
-      await redis.set(
-        `${key(room)}:pose:${role}`,
-        JSON.stringify(pose),
-        "EX",
-        15,
-      );
+      await savePose();
       await relay(room, {
         type: "joined",
         role,
         pose,
         exclude: ws.connectionId,
       });
+      if (ws.followPublic && (await publicRoom()) !== room)
+        send(ws, { type: "world-reset" });
       return;
     }
     if (!room) return;
@@ -221,12 +276,7 @@ export function attachSocket(ws: any, req: any) {
       await relay(room, { type: "pose", role, pose, exclude: ws.connectionId });
       if (t - lastSave > 1800) {
         lastSave = t;
-        await redis.set(
-          `${key(room)}:pose:${role}`,
-          JSON.stringify(pose),
-          "EX",
-          15,
-        );
+        await savePose();
       }
       return;
     }
@@ -266,16 +316,14 @@ export function attachSocket(ws: any, req: any) {
       return;
     }
     if (a.type === "action") {
-      await redis.set(
-        `${key(room)}:pose:${role}`,
-        JSON.stringify({ ...pose, time: Date.now() }),
-        "EX",
-        15,
-      );
+      if (!(await savePose())) return;
       const poses = await getPoses(room);
       poses[role] = pose;
       const result = await mutate(room, async (s) => {
-        if (s.players[role]?.id !== id)
+        if (
+          s.players[role]?.id !== id ||
+          (await redis.get(seatKey(key(room), role))) !== ws.connectionId
+        )
           throw new Error(
             "This puppy joined from another tab. Refresh to reconnect.",
           );
@@ -295,12 +343,7 @@ export function attachSocket(ws: any, req: any) {
             moving: false,
             time: Date.now(),
           };
-          await redis.set(
-            `${key(room)}:pose:${role}`,
-            JSON.stringify(pose),
-            "EX",
-            15,
-          );
+          await savePose();
           send(ws, { type: "travel", pose });
           await relay(room, {
             type: "pose",
@@ -346,13 +389,12 @@ export function attachSocket(ws: any, req: any) {
   });
   ws.on("error", () => {});
   ws.on("close", () => {
+    disconnected = true;
     clearInterval(heartbeat);
     clearTimeout(helloTimeout);
     if (room) {
       rooms.get(room)?.delete(ws);
-      void relay(room, { type: "left", role, exclude: ws.connectionId }).catch(
-        () => {},
-      );
+      void release().catch(() => {});
       if (rooms.get(room)?.size === 0) {
         rooms.delete(room);
         void subscriber?.unsubscribe(`${key(room)}:events`);

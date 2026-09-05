@@ -2,13 +2,7 @@ import { StudioEnvironment, Cinema } from "../game/Atmosphere";
 import { Suspense, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, Float, Sparkles } from "@react-three/drei";
-import {
-  ArrowUpRight,
-  Check,
-  Heart,
-  LockKeyhole,
-  PawPrint,
-} from "lucide-react";
+import { ArrowUpRight, Check, Heart, PawPrint } from "lucide-react";
 import { Puppy } from "../game/Puppy";
 import { Box, Plant, Lamp } from "../game/Primitives";
 import type { Role } from "../game/content";
@@ -133,13 +127,11 @@ export function Lobby({
   authorized,
   authError,
   onEnter,
-  room,
   initialRole = 0,
 }: {
   authorized: boolean;
   authError: string;
   onEnter: (r: Role, newRoom: boolean) => void;
-  room: string;
   initialRole?: Role;
 }) {
   const [role, setRole] = useState<Role>(initialRole);
@@ -208,7 +200,7 @@ export function Lobby({
           <PawPrint size={22} /> mingy’s world
         </a>
         <span className="private-label">
-          <LockKeyhole size={13} /> a world for just us
+          <Heart size={13} /> made for two
         </span>
       </header>
       <section className="lobby-content">
@@ -267,10 +259,13 @@ export function Lobby({
           disabled={!authorized}
           onClick={() => onEnter(role, false)}
         >
-          {room ? "Join our adventure" : "Enter our world"}
+          Join our adventure
           <ArrowUpRight size={20} />
         </button>
-        {room && (
+        <p className="lobby-pairing">
+          Same address. Two devices. We’ll connect you automatically.
+        </p>
+        {authorized && (
           <button
             className="text-button fresh-room"
             onClick={() => onEnter(role, true)}

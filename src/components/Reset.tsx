@@ -1,23 +1,38 @@
 import { useState } from "react";
-import { PawPrint, ArrowUpRight, Copy, Check, RotateCcw } from "lucide-react";
+import { PawPrint, ArrowUpRight, RotateCcw, LoaderCircle } from "lucide-react";
 export function Reset({
   authorized,
-  invite,
   error,
 }: {
   authorized: boolean;
-  invite: string;
   error: string;
 }) {
-  const [url, setUrl] = useState(""),
-    [copied, setCopied] = useState(false);
-  const create = () => {
-    const room = Array.from(crypto.getRandomValues(new Uint8Array(16)), (n) =>
-      n.toString(16).padStart(2, "0"),
-    ).join("");
-    setUrl(
-      `${location.origin}/#${new URLSearchParams({ ...(invite ? { invite } : {}), room })}`,
-    );
+  const [ready, setReady] = useState(false),
+    [busy, setBusy] = useState(false),
+    [resetError, setResetError] = useState(""),
+    [previousRoom, setPreviousRoom] = useState("");
+  const create = async () => {
+    setBusy(true);
+    setResetError("");
+    try {
+      const response = await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset" }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Please try again.");
+      setPreviousRoom(result.previousRoom || "");
+      setReady(true);
+    } catch (e) {
+      setResetError(
+        e instanceof Error
+          ? e.message
+          : "The house couldn’t connect. Try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <main className="reset-page">
@@ -35,52 +50,45 @@ export function Reset({
           <em>Fresh case.</em>
         </h1>
         <p>
-          Create an empty adventure for a test run or your date. It starts at
-          the beginning, with every clue, puzzle and surprise reset.
+          Start a new shared adventure for a test run or your date. Every clue,
+          puzzle and surprise starts at the beginning.
         </p>
         <p className="reset-small">
-          Your previous adventure stays saved at its original invitation. Both
-          Mingys should open the same new link.
+          Both devices keep using the same address. If your Mingy is already
+          here, their game returns to the welcome screen too.
         </p>
         {!authorized ? (
-          <p role="alert">{error || "Opening your private invitation…"}</p>
-        ) : !url ? (
-          <button className="button primary wide" onClick={create}>
-            Create a fresh adventure <ArrowUpRight size={18} />
+          <p role="alert">{error || "Opening the house…"}</p>
+        ) : !ready ? (
+          <button
+            className="button primary wide"
+            onClick={create}
+            disabled={busy}
+          >
+            {busy ? "Preparing your adventure…" : "Start a fresh adventure"}
+            {busy ? (
+              <LoaderCircle className="spin" size={18} />
+            ) : (
+              <ArrowUpRight size={18} />
+            )}
           </button>
         ) : (
           <div className="fresh-invitation">
-            <p>Your new case is ready. Nothing has been played.</p>
-            <label htmlFor="fresh-url">Private invitation</label>
-            <input
-              id="fresh-url"
-              readOnly
-              value={url}
-              onFocus={(e) => e.target.select()}
-            />
-            <div>
-              <button
-                className="button subtle"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(url);
-                    setCopied(true);
-                  } catch {
-                    document
-                      .querySelector<HTMLInputElement>("#fresh-url")
-                      ?.select();
-                  }
-                }}
+            <p>Your new case is ready. Both Mingys can head straight in.</p>
+            <a className="button primary wide" href="/">
+              Enter our world <ArrowUpRight size={17} />
+            </a>
+            {previousRoom && (
+              <a
+                className="text-button"
+                href={`/#${new URLSearchParams({ room: previousRoom })}`}
               >
-                {copied ? <Check size={17} /> : <Copy size={17} />}{" "}
-                {copied ? "Copied" : "Copy link"}
-              </button>
-              <a className="button primary" href={url}>
-                Enter our world <ArrowUpRight size={17} />
+                Revisit the previous saved adventure
               </a>
-            </div>
+            )}
           </div>
         )}
+        {resetError && <p role="alert">{resetError}</p>}
       </section>
       <span className="reset-foot">
         Same two Mingys. A brand-new beginning.

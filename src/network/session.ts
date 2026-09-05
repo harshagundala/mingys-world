@@ -39,6 +39,7 @@ class Session extends EventTarget {
   };
   lastRemote = 0;
   playerId = "";
+  requestedRoom = "";
   closed = false;
   retry = 0;
   timer = 0;
@@ -56,12 +57,27 @@ class Session extends EventTarget {
     for (const l of this.listeners) l();
   }
   enter(room: string, role: Role) {
+    clearTimeout(this.timer);
+    const previous = this.ws;
+    this.ws = null;
+    previous?.close();
     this.closed = false;
+    this.retry = 0;
+    this.requestedRoom = room;
     this.playerId =
-      localStorage.getItem(`mingy-player-${room}-${role}`) ||
+      localStorage.getItem("mingy-device-id") ||
+      (room && localStorage.getItem(`mingy-player-${room}-${role}`)) ||
       crypto.randomUUID();
-    localStorage.setItem(`mingy-player-${room}-${role}`, this.playerId);
-    this.update({ room, role, status: "connecting", error: "" });
+    localStorage.setItem("mingy-device-id", this.playerId);
+    this.poses = {};
+    this.update({
+      room,
+      role,
+      state: null,
+      otherOnline: false,
+      status: "connecting",
+      error: "",
+    });
     clearInterval(this.pingTimer);
     this.pingTimer = window.setInterval(() => {
       if (this.snapshot.status === "connected")
@@ -77,14 +93,16 @@ class Session extends EventTarget {
     const ws = new WebSocket(`${protocol}//${location.host}/api/ws`);
     this.ws = ws;
     ws.onopen = () => {
+      if (this.ws !== ws) return;
       this.send({
         type: "join",
-        room: this.snapshot.room,
+        room: this.requestedRoom,
         role: this.snapshot.role,
         playerId: this.playerId,
       });
     };
     ws.onmessage = (e) => {
+      if (this.ws !== ws) return;
       let m;
       try {
         m = JSON.parse(e.data);
@@ -98,12 +116,18 @@ class Session extends EventTarget {
         this.lastRemote = Date.now();
         this.update({
           state: m.state,
+          role: m.role,
+          room: m.room || this.requestedRoom,
           status: "connected",
           place: m.pose.place,
-          otherOnline: !!m.poses[1 - this.snapshot.role],
+          otherOnline: !!m.poses[1 - m.role],
           error: "",
         });
         this.dispatchEvent(new CustomEvent("travel", { detail: m.pose }));
+      }
+      if (m.type === "world-reset" && !this.requestedRoom) {
+        location.replace("/");
+        return;
       }
       if (
         m.type === "state" &&
@@ -155,15 +179,17 @@ class Session extends EventTarget {
     };
     ws.onerror = () => {};
     ws.onclose = (event) => {
-      if (this.closed) return;
-      if ([4401, 4409].includes(event.code)) {
+      if (this.closed || this.ws !== ws) return;
+      if ([4401, 4409, 4410].includes(event.code)) {
         this.closed = true;
         this.update({
           status: "error",
           error:
             event.code === 4401
-              ? "Your invitation expired. Open your private invitation again."
-              : "That puppy is already playing. Choose the other collar.",
+              ? "The house needs a refresh. Open the game again."
+              : event.code === 4410
+                ? "Your puppy is open in another tab. Continue there, or reload here to bring it back."
+                : "Both puppies are already playing. Close the game on an extra device, then try again.",
         });
         return;
       }

@@ -1,8 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { authorized } from "../server/auth.ts";
 export default async function handler(req: any, res: any) {
-  if (!authorized(req)) return res.status(401).end();
   const q = new URL(req.url, "http://localhost").searchParams,
     id = q.get("id") || "";
   if (!/^([0-9]|[12][0-9])$/.test(id)) return res.status(404).end();

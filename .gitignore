@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vercel/
+.env*
+!.env.example
+pictures/
+private-assets/
+output/
+.DS_Store
+*.blend1
+.vercel
+.env*.local
+
+*.tsbuildinfo

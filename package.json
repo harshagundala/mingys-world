@@ -1,0 +1,39 @@
+{
+  "name": "mingys-world",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env.local scripts/dev.mjs",
+    "dev:client": "vite --host 127.0.0.1",
+    "build": "tsc -b && vite build",
+    "test": "node --import tsx --test tests/*.test.mjs",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@react-three/drei": "latest",
+    "@react-three/fiber": "latest",
+    "@react-three/rapier": "latest",
+    "@types/three": "latest",
+    "ioredis": "latest",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "three": "latest",
+    "ws": "latest"
+  },
+  "devDependencies": {
+    "@playwright/cli": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@types/ws": "latest",
+    "@vitejs/plugin-react": "latest",
+    "agent-browser": "latest",
+    "prettier": "^3.9.6",
+    "sharp": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  }
+}

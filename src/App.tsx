@@ -1,3 +1,5 @@
+import { Reset } from "./components/Reset";
+import { advancedObjective, advancedHints } from "./game/adventure";
 import {
   Component,
   Suspense,
@@ -54,9 +56,11 @@ import {
 } from "./game/content";
 import type { Role, Place } from "./game/content";
 import { controls, setupControls } from "./game/controls";
-import { sound, toggleAudio } from "./game/audio";
+import { sound, toggleAudio, setMusicScene, audioStatus } from "./game/audio";
 if (import.meta.env.DEV)
-  Object.assign(window, { __mingy: { session, camera, controls } });
+  Object.assign(window, {
+    __mingy: { session, camera, controls, audioStatus },
+  });
 const World = lazy(() => import("./game/World"));
 const parsed = new URLSearchParams(location.hash.slice(1));
 let invite =
@@ -107,6 +111,7 @@ function App() {
     [audioOn, setAudioOn] = useState(false),
     [cameraOn, setCameraOn] = useState(false),
     [cameraBusy, setCameraBusy] = useState(false),
+    [cameraError, setCameraError] = useState(""),
     [endHidden, setEndHidden] = useState(false),
     [now, setNow] = useState(Date.now()),
     [copied, setCopied] = useState(false);
@@ -124,7 +129,7 @@ function App() {
     async function authenticate() {
       try {
         const result = await fetch(
-          "/api/session",
+          invite ? "/api/session" : "/api/session?invitation=1",
           invite
             ? {
                 method: "POST",
@@ -135,6 +140,10 @@ function App() {
         );
         const data = await result.json();
         if (data.authorized) {
+          if (!invite && data.invite) {
+            invite = data.invite;
+            sessionStorage.setItem("mingy-invite", invite);
+          }
           setAuth(true);
           setAuthError("");
         } else
@@ -202,6 +211,10 @@ function App() {
   }, [s.status, s.otherOnline]);
   const inspect = useCallback(
     (id: string) => {
+      if (id.startsWith("dream-tile-")) {
+        session.action({ kind: "dream-step", tile: Number(id.slice(11)) });
+        return;
+      }
       if (id.startsWith("f") && fuses.some((f) => f.id === id)) {
         session.action({ kind: "fuse", id });
         sound("clue");
@@ -210,7 +223,10 @@ function App() {
       const c = clues.find((c) => c.id === id);
       if (!c) return;
       if (c.kind === "portal") {
-        if (c.chapter > (session.snapshot.state?.chapter || 0)) {
+        if (
+          (c.gate === "archive" && !session.snapshot.state?.archiveOpen) ||
+          c.chapter > (session.snapshot.state?.chapter || 0)
+        ) {
           notify(
             "The house will open this passage when the investigation leads here.",
           );
@@ -287,7 +303,14 @@ function App() {
       previous?.focus?.();
     };
   }, [panel, tutorial]);
+  useEffect(() => {
+    setMusicScene(s.place, s.state?.chapter || 0);
+  }, [s.place, s.state?.chapter]);
   const enter = (chosen: Role, fresh: boolean) => {
+    if (!audioOn)
+      void toggleAudio()
+        .then(setAudioOn)
+        .catch(() => {});
     let r = room;
     if (fresh || !r)
       r = Array.from(crypto.getRandomValues(new Uint8Array(16)), (n) =>
@@ -318,8 +341,14 @@ function App() {
       setPanel("share");
     }
   };
+  useEffect(() => {
+    const refresh = () => setCameraOn(camera.active);
+    camera.addEventListener("change", refresh);
+    return () => camera.removeEventListener("change", refresh);
+  }, []);
   const toggleCamera = async () => {
     setCameraBusy(true);
+    setCameraError("");
     try {
       if (camera.active) {
         camera.disable();
@@ -327,17 +356,25 @@ function App() {
       } else {
         await camera.enable();
         setCameraOn(true);
+        setToast("");
       }
     } catch (e: any) {
-      notify(
-        e.name === "NotAllowedError"
-          ? "Camera permission wasn’t granted. You can enable it in the browser’s site settings and try again."
-          : "The camera is busy or unavailable. Close another app using it, then try again. You can keep playing.",
-      );
+      const message =
+        e.name === "CameraUnavailableError"
+          ? e.message
+          : e.name === "NotAllowedError" || e.name === "SecurityError"
+            ? "Camera access is blocked. Allow Camera in your browser’s site permissions, then try again. If you are in an embedded preview, open the invitation directly in Chrome."
+            : e.name === "NotFoundError"
+              ? "This browser cannot find a camera. Connect one and try again."
+              : "The camera is busy or unavailable. Turn off video in your other call or app, then try again. Keep that call open for audio.";
+      setCameraError(message);
+      notify(message);
     } finally {
       setCameraBusy(false);
     }
   };
+  if (location.pathname === "/reset")
+    return <Reset authorized={auth} invite={invite} error={authError} />;
   if (!playing)
     return (
       <Lobby
@@ -355,7 +392,8 @@ function App() {
     );
   const state = s.state,
     chapter = state?.chapter || 0,
-    current = chapters[chapter],
+    current = { ...chapters[chapter], ...advancedObjective(state || {}) },
+    currentHints = advancedHints(state || {}) || hints[chapter] || [],
     activeClue = clues.find((c) => c.id === panel),
     nearClue = clues.find((c) => c.id === near),
     remaining = state?.powerUntil
@@ -406,7 +444,9 @@ function App() {
         </div>
         <div className="toolbar">
           <button
-            aria-label={audioOn ? "Mute ambience" : "Play gentle ambience"}
+            aria-label={
+              audioOn ? "Mute soundtrack" : "Play original soundtrack"
+            }
             title="Gentle ambience"
             onClick={async () => setAudioOn(await toggleAudio())}
           >
@@ -682,6 +722,7 @@ function App() {
                 <p>
                   <kbd>Arrows</kbd> or <kbd>WASD</kbd> to move. <kbd>Space</kbd>{" "}
                   to jump. Hold <kbd>Shift</kbd> to sprint. Scroll to zoom.
+                  Right-drag to look around.
                 </p>
               </div>
               <div>
@@ -703,13 +744,51 @@ function App() {
                 </p>
               </div>
             </div>
-            <div className="tutorial-note">
-              <Camera size={19} />
-              <p>
-                Turn on your camera using the top-right camera button. Video
-                only; your microphone is never requested.{" "}
-                <strong>The little face above your puppy is you.</strong>
-              </p>
+            <div className="camera-onboarding">
+              <div className="camera-onboarding-copy">
+                <Camera size={23} />
+                <div>
+                  <h3>Put a face above those paws</h3>
+                  <p>
+                    Choose Enable camera below to request access. You’ll see a
+                    preview as soon as it works. Video only; your microphone is
+                    never requested. Keep your other call for audio.
+                  </p>
+                </div>
+              </div>
+              <div className="camera-onboarding-action">
+                <CameraTile local role={s.role} />
+                <button
+                  className="button subtle"
+                  disabled={cameraBusy}
+                  onClick={toggleCamera}
+                >
+                  {cameraBusy ? (
+                    <LoaderCircle size={18} className="spin" />
+                  ) : cameraOn ? (
+                    <Check size={18} />
+                  ) : (
+                    <Camera size={18} />
+                  )}{" "}
+                  {cameraBusy
+                    ? "Waiting for camera permission…"
+                    : cameraOn
+                      ? "Camera on · turn off"
+                      : "Enable camera"}
+                </button>
+              </div>
+              {cameraError && (
+                <p role="alert" className="camera-setup-error">
+                  {cameraError}
+                </p>
+              )}
+              {cameraBusy && (
+                <p className="helper">
+                  Check your browser’s camera prompt or the permissions icon
+                  beside the address. You can continue playing while camera
+                  access is pending.
+                </p>
+              )}
             </div>
             <button
               className="button primary wide"
@@ -844,7 +923,7 @@ function App() {
                   Good detectives ask each other ridiculous questions.
                 </p>
                 <div className="hint-stack">
-                  {(hints[chapter] || []).slice(0, hintLevel).map((h, i) => (
+                  {currentHints.slice(0, hintLevel).map((h, i) => (
                     <div key={i}>
                       <span>Nudge {i + 1}</span>
                       <p>{h}</p>
@@ -853,12 +932,12 @@ function App() {
                 </div>
                 <button
                   className="button primary wide"
-                  disabled={hintLevel >= (hints[chapter]?.length || 0)}
+                  disabled={hintLevel >= (currentHints?.length || 0)}
                   onClick={() => setHintLevel((v) => v + 1)}
                 >
                   {hintLevel === 0
                     ? "Give us a gentle nudge"
-                    : hintLevel < (hints[chapter]?.length || 0)
+                    : hintLevel < (currentHints?.length || 0)
                       ? "A more specific nudge"
                       : "That’s every nudge for this chapter"}
                   <Leaf size={18} />

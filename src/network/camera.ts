@@ -47,6 +47,13 @@ class Camera extends EventTarget {
   }
   async enable() {
     if (this.active) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const error = new Error(
+        "Camera access is unavailable in this browser preview. Open your invitation directly in Chrome or Edge, then choose Enable camera.",
+      );
+      error.name = "CameraUnavailableError";
+      throw error;
+    }
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         width: { ideal: 384 },
@@ -55,28 +62,38 @@ class Camera extends EventTarget {
       },
       audio: false,
     });
-    this.stream = stream;
-    this.video.srcObject = stream;
-    await this.video.play();
-    this.active = true;
-    const sender =
-      this.pc?.getSenders().find((s) => s.track?.kind === "video") ||
-      this.pc?.getTransceivers()[0]?.sender;
-    if (sender) await sender.replaceTrack(stream.getVideoTracks()[0]);
-    this.timer = window.setInterval(() => {
-      if (!this.active || document.hidden || !session.snapshot.otherOnline)
-        return;
-      if (this.pc?.connectionState === "connected") return;
-      const ctx = this.canvas.getContext("2d");
-      if (!ctx || this.video.readyState < 2) return;
-      ctx.drawImage(this.video, 0, 0, 192, 144);
-      session.send({
-        type: "camera",
-        frame: this.canvas.toDataURL("image/jpeg", 0.55),
-      });
-    }, 190);
-    session.send({ type: "camera-on" });
-    this.dispatchEvent(new Event("change"));
+    try {
+      this.stream = stream;
+      stream
+        .getVideoTracks()
+        .forEach((track) =>
+          track.addEventListener("ended", () => this.disable(), { once: true }),
+        );
+      this.video.srcObject = stream;
+      await this.video.play();
+      this.active = true;
+      const sender =
+        this.pc?.getSenders().find((s) => s.track?.kind === "video") ||
+        this.pc?.getTransceivers()[0]?.sender;
+      if (sender) await sender.replaceTrack(stream.getVideoTracks()[0]);
+      this.timer = window.setInterval(() => {
+        if (!this.active || document.hidden || !session.snapshot.otherOnline)
+          return;
+        if (this.pc?.connectionState === "connected") return;
+        const ctx = this.canvas.getContext("2d");
+        if (!ctx || this.video.readyState < 2) return;
+        ctx.drawImage(this.video, 0, 0, 192, 144);
+        session.send({
+          type: "camera",
+          frame: this.canvas.toDataURL("image/jpeg", 0.55),
+        });
+      }, 190);
+      session.send({ type: "camera-on" });
+      this.dispatchEvent(new Event("change"));
+    } catch (error) {
+      this.disable();
+      throw error;
+    }
   }
   disable() {
     this.stream?.getTracks().forEach((t) => t.stop());
@@ -84,7 +101,10 @@ class Camera extends EventTarget {
     this.active = false;
     this.video.srcObject = null;
     clearInterval(this.timer);
-    void this.pc?.getTransceivers()[0]?.sender.replaceTrack(null);
+    void this.pc
+      ?.getTransceivers()[0]
+      ?.sender.replaceTrack(null)
+      .catch(() => {});
     session.send({ type: "camera-off" });
     this.dispatchEvent(new Event("change"));
   }

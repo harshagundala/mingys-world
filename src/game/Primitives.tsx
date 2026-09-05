@@ -1,3 +1,4 @@
+import { surfaceMaterial, roundedGeometry, surfaceTexture } from "./materials";
 const brass = "#b58a42",
   wood = "#6c422d",
   darkWood = "#3f2923",
@@ -26,31 +27,34 @@ export function Box({
       rotation={rot as any}
       castShadow={cast}
       receiveShadow
-    >
-      <boxGeometry args={s as any} />
-      <meshStandardMaterial
-        color={color}
-        roughness={metal ? 0.4 : 0.82}
-        metalness={metal}
-        emissive={emissive || "#000"}
-        emissiveIntensity={emissive ? 0.8 : 0}
-      />
-    </mesh>
+      geometry={roundedGeometry(s)}
+      material={surfaceMaterial(color, metal, emissive)}
+      dispose={null}
+    />
   );
 }
 export function Sphere({
   p,
   s,
   color,
+  emissive,
 }: {
   p: number[];
   s: number[];
   color: string;
+  emissive?: string;
 }) {
   return (
     <mesh position={p as any} scale={s as any} castShadow>
-      <sphereGeometry args={[1, 16, 12]} />
-      <meshStandardMaterial color={color} roughness={0.78} />
+      <sphereGeometry args={[1, 24, 16]} />
+      <meshStandardMaterial
+        color={color}
+        emissive={emissive}
+        roughness={0.82}
+        map={surfaceTexture("fabric")}
+        bumpMap={surfaceTexture("fabric")}
+        bumpScale={0.008}
+      />
     </mesh>
   );
 }
@@ -99,11 +103,19 @@ export function Plant({
           rotation={[0, i * 2.4, 0]}
           position={[0, 0.5 + i * 0.08, 0]}
         >
-          <Sphere
-            p={[0.17, 0.06, 0]}
-            s={[0.26, 0.045, 0.085]}
-            color={i % 2 ? "#57825c" : "#365b42"}
-          />
+          <mesh
+            position={[0.17, 0.065, 0]}
+            rotation={[0, 0, 0.28]}
+            scale={[0.28, 0.028, 0.1]}
+            castShadow
+          >
+            <sphereGeometry args={[1, 20, 12]} />
+            <meshStandardMaterial
+              color={i % 2 ? "#77975e" : "#476b49"}
+              map={surfaceTexture("leaf")}
+              roughness={0.62}
+            />
+          </mesh>
           {flower && i > 3 && (
             <Sphere
               p={[0.23, 0.11, 0]}

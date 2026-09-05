@@ -27,7 +27,11 @@ export class Browser {
         if (p) {
           this.pending.delete(m.id);
           clearTimeout(p.timer);
-          m.error ? p.reject(new Error(m.error.message)) : p.resolve(m.result);
+          m.error
+            ? p.reject(
+                new Error(`CDP ${this.name} ${m.id}: ${m.error.message}`),
+              )
+            : p.resolve(m.result);
         }
       } else {
         for (const f of this.listeners.get(m.method) || []) f(m.params);

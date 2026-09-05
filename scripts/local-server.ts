@@ -31,6 +31,8 @@ new WebSocketServer({ server, maxPayload: 50000 }).on(
   "connection",
   attachSocket,
 );
-server.listen(Number(process.env.MINGY_LOCAL_PORT || 3001), "127.0.0.1", () =>
-  console.log("Mingy multiplayer ready on :3001"),
+server.listen(Number(process.env.MINGY_LOCAL_PORT || 4101), "127.0.0.1", () =>
+  console.log(
+    `Mingy multiplayer ready on :${process.env.MINGY_LOCAL_PORT || 4101}`,
+  ),
 );

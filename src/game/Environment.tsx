@@ -1,3 +1,7 @@
+import { StaticBatch } from "./StaticBatch";
+import { Details } from "./Details";
+import { DreamEnvironment } from "./Dream";
+import { surfaceTexture } from "./materials";
 import { Box, Sphere, Cylinder, Plant, Lamp } from "./Primitives";
 import { useMemo, Suspense } from "react";
 import { useTexture } from "@react-three/drei";
@@ -250,36 +254,20 @@ function Walls({
     </>
   );
 }
-function woodTexture() {
-  const c = document.createElement("canvas");
-  c.width = 512;
-  c.height = 512;
-  const ctx = c.getContext("2d")!;
-  ctx.fillStyle = "#946b45";
-  ctx.fillRect(0, 0, 512, 512);
-  for (let row = 0; row < 8; row++) {
-    const x = (row % 2) * 120;
-    for (let n = -1; n < 4; n++) {
-      ctx.fillStyle = ["#976b48", "#a2744e", "#a67b52", "#916640"][
-        (n + row + 4) % 4
-      ];
-      ctx.fillRect(x + n * 240 + 1, row * 64 + 1, 238, 62);
-    }
-  }
-  for (let i = 0; i < 1300; i++) {
-    let v = Math.sin(i * 72.131) * 43758.5453;
-    v -= Math.floor(v);
-    ctx.fillStyle = `rgba(42,22,10,${0.02 + v * 0.05})`;
-    ctx.fillRect((i * 131) % 512, (i * 71) % 512, 5 + v * 70, 1);
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(5, 5);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
 function Floor({ place }: { place: Place }) {
-  const tex = useMemo(woodTexture, []);
+  const [tex, normal, rough] = useTexture([
+    "/textures/oak-color.jpg",
+    "/textures/oak-normal.jpg",
+    "/textures/oak-roughness.jpg",
+  ]);
+  useMemo(() => {
+    for (const t of [tex, normal, rough]) {
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(4, 4);
+      t.anisotropy = 8;
+    }
+    tex.colorSpace = THREE.SRGBColorSpace;
+  }, [tex, normal, rough]);
   return (
     <>
       <RigidBody type="fixed" colliders={false}>
@@ -302,9 +290,12 @@ function Floor({ place }: { place: Place }) {
                 ? "#577477"
                 : place === "observatory"
                   ? "#344956"
-                  : "#ffffff"
+                  : "#cfb991"
           }
-          roughness={0.87}
+          normalMap={place === "house" || place === "loft" ? normal : null}
+          normalScale={new THREE.Vector2(0.12, 0.12)}
+          roughnessMap={place === "house" || place === "loft" ? rough : null}
+          roughness={0.94}
         />
       </mesh>
       <Box
@@ -708,16 +699,23 @@ export function Environment({ place }: { place: Place }) {
   return (
     <group>
       <Floor place={place} />
-      {place === "house" ? (
-        <House />
-      ) : place === "loft" ? (
-        <Loft />
-      ) : place === "garden" ? (
-        <Garden />
-      ) : place === "lab" ? (
-        <Lab />
+      <Details place={place} />
+      {place === "dream" ? (
+        <DreamEnvironment />
       ) : (
-        <Observatory />
+        <StaticBatch key={place}>
+          {place === "house" ? (
+            <House />
+          ) : place === "loft" ? (
+            <Loft />
+          ) : place === "garden" ? (
+            <Garden />
+          ) : place === "lab" ? (
+            <Lab />
+          ) : (
+            <Observatory />
+          )}
+        </StaticBatch>
       )}
     </group>
   );

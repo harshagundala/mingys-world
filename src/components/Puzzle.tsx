@@ -1,3 +1,4 @@
+import { AdvancedPuzzle } from "./AdvancedPuzzles";
 import { useEffect, useState } from "react";
 import {
   Check,
@@ -133,6 +134,15 @@ export function Puzzle({
     session.action({ kind: "solve", id, answer });
     setTimeout(() => setBusy(false), 5000);
   };
+  if (
+    id === "atlas" ||
+    id.startsWith("circuit-") ||
+    id.startsWith("mirror-") ||
+    (id === "evidence" && s.archiveOpen && s.chapter === 2) ||
+    (id === "signal" && s.round >= 3 && s.chapter === 4) ||
+    (id === "sky" && s.skyAligned && s.chapter === 6)
+  )
+    return <AdvancedPuzzle id={id} state={s} role={role} />;
   const expected: Record<string, number> = {
     bell: 0,
     clock: 1,

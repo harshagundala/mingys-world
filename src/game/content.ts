@@ -1,4 +1,5 @@
-export type Place = "house" | "loft" | "garden" | "lab" | "observatory";
+export type Place =
+  "house" | "loft" | "garden" | "lab" | "observatory" | "dream";
 export type Role = 0 | 1;
 export interface Clue {
   id: string;
@@ -10,6 +11,7 @@ export interface Clue {
   text?: [string, string];
   target?: Place;
   photo?: number;
+  gate?: "archive";
 }
 export const chapters = [
   {
@@ -82,6 +84,7 @@ export const places: Record<
   Place,
   { name: string; spawn: [number, number, number] }
 > = {
+  dream: { name: "The rooms between", spawn: [0, 1, 8] },
   house: { name: "The house", spawn: [0, 1, 8] },
   loft: { name: "The upstairs library", spawn: [0, 1, 7] },
   garden: { name: "The moon garden", spawn: [0, 1, 8] },
@@ -89,6 +92,120 @@ export const places: Record<
   observatory: { name: "The observatory", spawn: [0, 1, 7] },
 };
 export const clues: Clue[] = [
+  {
+    id: "music-box",
+    title: "Inside the music box",
+    place: "loft",
+    pos: [6, 0, -1],
+    chapter: 2,
+    kind: "portal",
+    target: "dream",
+    gate: "archive",
+  },
+  {
+    id: "dream-return",
+    title: "Back through the music box",
+    place: "dream",
+    pos: [0, 0, 9.2],
+    chapter: 2,
+    kind: "portal",
+    target: "loft",
+  },
+  {
+    id: "dream-garden",
+    title: "Follow the scent of moonflowers",
+    place: "dream",
+    pos: [0, 0, -9],
+    chapter: 3,
+    kind: "portal",
+    target: "house",
+  },
+  {
+    id: "atlas",
+    title: "The atlas of rooms that cannot exist",
+    place: "dream",
+    pos: [-8, 1, 5],
+    chapter: 2,
+    kind: "puzzle",
+  },
+  {
+    id: "dream-a",
+    title: "The tea is getting rather large",
+    place: "dream",
+    pos: [8, 1, 4],
+    chapter: 2,
+    text: [
+      "The teacup is now the size of a swimming pool. The music box was not a container. It was a door.\n\nA note from Iris: “I did carry the Star outside. It asked me to. It had spent years learning where people live, and somehow never learned why they miss each other.”\n\n“Follow the atlas. One of you reads; one of you walks. Neither can do both.”",
+      "The teacup is now the size of a swimming pool. The music box was not a container. It was a door.\n\nA note from Iris: “I did carry the Star outside. It asked me to. It had spent years learning where people live, and somehow never learned why they miss each other.”\n\n“Follow the atlas. One of you reads; one of you walks. Neither can do both.”",
+    ],
+  },
+  {
+    id: "dream-b",
+    title: "An astronomer in a paper boat",
+    place: "dream",
+    pos: [8, 1, -5],
+    chapter: 2,
+    text: [
+      "A paper boat circles above your head. Someone has written on its sail: “YES, THE FISH ARE FLYING. PLEASE CONTINUE INVESTIGATING.”\n\nThe atlas numbers the safe route from 1 onward. Its tiles have names. Read those names to your partner. They must stand on the corresponding tile and press E. Stepping over other tiles is harmless.\n\nIf you commit a wrong tile, only this map resets. No one falls, dies, or loses the case file.",
+      "A paper boat circles above your head. Someone has written on its sail: “YES, THE FISH ARE FLYING. PLEASE CONTINUE INVESTIGATING.”\n\nThe atlas numbers the safe route from 1 onward. Its tiles have names. Read those names to your partner. They must stand on the corresponding tile and press E. Stepping over other tiles is harmless.\n\nIf you commit a wrong tile, only this map resets. No one falls, dies, or loses the case file.",
+    ],
+  },
+  {
+    id: "dream-c",
+    title: "The architecture of missing someone",
+    place: "dream",
+    pos: [-8, 1, -5],
+    chapter: 2,
+    text: [
+      "“Three maps. The first belongs to mint; the second to rose; the third to mint again. The other collar walks. The reader must remain at the atlas.”\n\n“Beware: the paper turns between maps. The names stay attached to the same tiles. Numbers show the route; they are not coordinates.”\n\nUnderneath: “A home that cannot let anyone leave is just a very pretty cage. I think the Star is starting to understand.”",
+      "“Three maps. The first belongs to mint; the second to rose; the third to mint again. The other collar walks. The reader must remain at the atlas.”\n\n“Beware: the paper turns between maps. The names stay attached to the same tiles. Numbers show the route; they are not coordinates.”\n\nUnderneath: “A home that cannot let anyone leave is just a very pretty cage. I think the Star is starting to understand.”",
+    ],
+  },
+  ...Array.from({ length: 25 }, (_, i) => ({
+    id: `dream-tile-${i}`,
+    title: `Commit this dream tile`,
+    place: "dream" as Place,
+    pos: [((i % 5) - 2) * 1.65, 0, (Math.floor(i / 5) - 2) * 1.65] as [
+      number,
+      number,
+      number,
+    ],
+    chapter: 2,
+    kind: "puzzle" as const,
+  })),
+  {
+    id: "circuit-mint",
+    title: "The mint circuit panel",
+    place: "lab",
+    pos: [-8, 1, -5],
+    chapter: 4,
+    kind: "puzzle",
+  },
+  {
+    id: "circuit-rose",
+    title: "The rose circuit panel",
+    place: "lab",
+    pos: [8, 1, -5],
+    chapter: 4,
+    kind: "puzzle",
+  },
+  {
+    id: "mirror-mint",
+    title: "The western mirror",
+    place: "observatory",
+    pos: [-6, 1, 0],
+    chapter: 6,
+    kind: "puzzle",
+  },
+  {
+    id: "mirror-rose",
+    title: "The eastern mirror",
+    place: "observatory",
+    pos: [6, 1, 0],
+    chapter: 6,
+    kind: "puzzle",
+  },
+
   {
     id: "letter",
     title: "A letter addressed to two Mingys",

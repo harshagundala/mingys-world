@@ -1,3 +1,5 @@
+import { Cinema, StudioEnvironment } from "./Atmosphere";
+import { DreamTiles } from "./Dream";
 import {
   memo,
   Suspense,
@@ -32,7 +34,8 @@ function Character({ onNear }: { onNear: (id: string | null) => void }) {
     lastSend = useRef(0),
     lastNear = useRef(""),
     lastPlate = useRef(0),
-    lastJump = useRef(0);
+    lastJump = useRef(0),
+    lastSweep = useRef(0);
   const s = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const { camera } = useThree();
   const { world } = useRapier();
@@ -83,6 +86,10 @@ function Character({ onNear }: { onNear: (id: string | null) => void }) {
         (k.has("ArrowUp") || k.has("KeyW") ? 1 : 0) +
         controls.touch.z
       : 0;
+    const directionX =
+      dx * Math.cos(controls.azimuth) + dz * Math.sin(controls.azimuth);
+    dz = dz * Math.cos(controls.azimuth) - dx * Math.sin(controls.azimuth);
+    dx = directionX;
     const len = Math.hypot(dx, dz);
     if (len > 1) {
       dx /= len;
@@ -125,13 +132,23 @@ function Character({ onNear }: { onNear: (id: string | null) => void }) {
       s.state.powerUntil > Date.now()
     ) {
       const sweep = Math.sin(Date.now() / 2300) * 8;
-      if (Math.abs(p.z - sweep) < 0.3 && p.y < 0.65 && Math.abs(p.x) > 2) {
+      if (
+        Math.abs(p.z - sweep) < 0.3 &&
+        p.y < 0.65 &&
+        Math.abs(p.x) > 2 &&
+        t - lastSweep.current > 700
+      ) {
+        lastSweep.current = t;
         b.applyImpulse({ x: p.x > 0 ? -0.16 : 0.16, y: 0.16, z: 0.32 }, true);
       }
     }
-    const camHeight = 8.5 * controls.zoom,
-      camZ = 9.5 * controls.zoom;
-    const target = new THREE.Vector3(p.x * 0.82, p.y + camHeight, p.z + camZ);
+    const camHeight = 6.9 * controls.zoom,
+      camZ = 8.5 * controls.zoom;
+    const target = new THREE.Vector3(
+      p.x + Math.sin(controls.azimuth) * camZ,
+      p.y + camHeight,
+      p.z + Math.cos(controls.azimuth) * camZ,
+    );
     if (first.current) {
       camera.position.copy(target);
       first.current = false;
@@ -151,16 +168,38 @@ function Character({ onNear }: { onNear: (id: string | null) => void }) {
       let nearest = "",
         distance = Infinity;
       for (const c of clues) {
+        // Keep the timed run focused on live fuses, without old notes taking the E prompt.
+        if (
+          s.place === "lab" &&
+          s.state?.chapter === 5 &&
+          (s.state.powerUntil || 0) > Date.now() &&
+          c.kind !== "portal" &&
+          c.id !== "power"
+        )
+          continue;
         if (
           c.place !== s.place ||
           (c.chapter > (s.state?.chapter || 0) && c.kind !== "portal") ||
           (c.kind === "ball" && s.state?.balls.includes(c.id))
         )
           continue;
+        if (
+          c.id.startsWith("circuit-") &&
+          (s.state?.chapter !== 4 || s.state.round < 3)
+        )
+          continue;
+        if (
+          c.id.startsWith("mirror-") &&
+          (s.state?.chapter !== 6 || !s.state.skyAligned)
+        )
+          continue;
+        if (c.id.startsWith("dream-tile-") && s.state?.chapter !== 2) continue;
         const d = Math.hypot(p.x - c.pos[0], p.z - c.pos[2]);
         const score =
           d +
-          (c.kind === "portal" && c.chapter > (s.state?.chapter || 0)
+          (c.kind === "portal" &&
+          (c.chapter > (s.state?.chapter || 0) ||
+            (c.gate === "archive" && !s.state?.archiveOpen))
             ? 1.2
             : 0);
         if (d < 2.65 && score < distance) {
@@ -496,38 +535,49 @@ function Scene({
         args={[place === "garden" ? "#1b3634" : "#182c2e"]}
       />
       <fog attach="fog" args={["#182c2e", 30, 65]} />
-      <ambientLight intensity={0.65} />
-      <hemisphereLight args={["#d6e5db", "#685244", 1.6]} />
+      <StudioEnvironment />
+      <ambientLight intensity={0.32} />
+      <hemisphereLight args={["#b9d3d5", "#76563e", 0.9]} />
       <directionalLight
         position={[-6, 14, 8]}
-        intensity={2.5}
+        intensity={1.9}
         color="#ffe0ad"
         castShadow
-        shadow-mapSize={[1536, 1536]}
+        shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-16}
         shadow-camera-right={16}
         shadow-camera-top={16}
         shadow-camera-bottom={-16}
         shadow-bias={-0.0003}
+        shadow-normalBias={0.025}
       />
-      <directionalLight position={[7, 7, -7]} intensity={1.4} color="#9db9cd" />
+      <directionalLight position={[7, 7, -7]} intensity={1.0} color="#9bbfdb" />
       <Stars radius={70} depth={30} count={500} factor={2} fade speed={0.2} />
       <Sparkles
-        count={place === "garden" ? 45 : 20}
+        count={place === "garden" || place === "dream" ? 100 : 40}
         scale={[24, 5, 22]}
         position={[0, 2, 0]}
-        size={1.5}
+        size={2.1}
         speed={0.12}
         color="#e5cf92"
       />
-      <Physics gravity={[0, -13.5, 0]} timeStep={1 / 60}>
+      <Physics
+        gravity={[0, place === "dream" ? -8.5 : -13.5, 0]}
+        timeStep={1 / 60}
+      >
         <Environment key={`env-${place}`} place={place} />
         <Character key={`puppy-${place}`} onNear={onNear} />
         <Partner />
+        {place === "dream" && <DreamTiles />}
         {clues
           .filter(
             (c) =>
               c.place === place &&
+              !c.id.startsWith("dream-tile-") &&
+              (!c.id.startsWith("circuit-") ||
+                (s.state?.chapter === 4 && s.state.round === 3)) &&
+              (!c.id.startsWith("mirror-") ||
+                (s.state?.chapter === 6 && s.state.skyAligned)) &&
               !(c.kind === "ball" && s.state?.balls.includes(c.id)),
           )
           .map((c) => (
@@ -535,12 +585,17 @@ function Scene({
               key={c.id}
               clue={c}
               onInspect={onInspect}
-              chapter={s.state?.chapter || 0}
+              chapter={
+                c.gate === "archive" && !s.state?.archiveOpen
+                  ? -1
+                  : s.state?.chapter || 0
+              }
               found={!!s.state?.found.includes(c.id)}
             />
           ))}
         <FuseObjects />
       </Physics>
+      <Cinema />
     </>
   );
 }
@@ -569,7 +624,7 @@ function World(props: {
       camera={{ position: [0, 10, 15], fov: 48, near: 0.1, far: 150 }}
       onCreated={({ gl }) => {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
-        gl.toneMappingExposure = 1.12;
+        gl.toneMappingExposure = 1.04;
       }}
     >
       <Suspense

@@ -4,21 +4,40 @@
   "outputDirectory": "dist",
   "regions": ["sfo1"],
   "functions": {
-    "api/ws.ts": { "maxDuration": 300 },
-    "api/photo.ts": { "includeFiles": "private-assets/photos/**" }
+    "api/ws.ts": {
+      "maxDuration": 300
+    },
+    "api/photo.ts": {
+      "includeFiles": "private-assets/photos/**"
+    }
   },
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Robots-Tag", "value": "noindex, nofollow, noarchive" },
-        { "key": "Referrer-Policy", "value": "no-referrer" },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow, noarchive"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
         {
           "key": "Permissions-Policy",
           "value": "camera=(self), microphone=()"
         },
-        { "key": "X-Content-Type-Options", "value": "nosniff" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
       ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/reset",
+      "destination": "/index.html"
     }
   ]
 }

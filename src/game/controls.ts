@@ -8,6 +8,7 @@ export const controls = {
   interact: () => {},
   bark: () => {},
   zoom: 1,
+  azimuth: 0,
 };
 export function setupControls() {
   const down = (e: KeyboardEvent) => {
@@ -34,8 +35,33 @@ export function setupControls() {
       controls.bark();
     }
   };
+  let dragging = false,
+    lastX = 0;
+  const pointerDown = (e: PointerEvent) => {
+    if (e.button === 2 && !controls.blocked) {
+      dragging = true;
+      lastX = e.clientX;
+    }
+  };
+  const pointerMove = (e: PointerEvent) => {
+    if (dragging) {
+      controls.azimuth -= (e.clientX - lastX) * 0.005;
+      lastX = e.clientX;
+    }
+  };
+  const pointerUp = () => {
+    dragging = false;
+  };
+  const context = (e: MouseEvent) => {
+    if (!controls.blocked) e.preventDefault();
+  };
+  window.addEventListener("pointerdown", pointerDown);
+  window.addEventListener("pointermove", pointerMove);
+  window.addEventListener("pointerup", pointerUp);
+  window.addEventListener("contextmenu", context);
   const up = (e: KeyboardEvent) => controls.keys.delete(e.code);
   const blur = () => {
+    dragging = false;
     controls.keys.clear();
     controls.touch = { x: 0, z: 0 };
     controls.jumpQueued = false;
@@ -45,6 +71,10 @@ export function setupControls() {
   window.addEventListener("blur", blur);
   document.addEventListener("visibilitychange", blur);
   return () => {
+    window.removeEventListener("pointerdown", pointerDown);
+    window.removeEventListener("pointermove", pointerMove);
+    window.removeEventListener("pointerup", pointerUp);
+    window.removeEventListener("contextmenu", context);
     window.removeEventListener("keydown", down);
     window.removeEventListener("keyup", up);
     window.removeEventListener("blur", blur);

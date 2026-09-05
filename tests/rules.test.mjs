@@ -1,3 +1,11 @@
+import {
+  dreamRoutes,
+  dreamNavigator,
+  dreamTile,
+  circuitSolved,
+  circuitInitial,
+  mirrorTargets,
+} from "../src/game/adventure.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { initialState, reduceAction, travelTarget } from "../server/rules.ts";
@@ -127,8 +135,8 @@ test("deduction admits exactly one assignment under every written timing constra
         },
       },
       at("evidence"),
-    ).state.chapter,
-    3,
+    ).state.archiveOpen,
+    true,
   );
 });
 
@@ -188,7 +196,8 @@ test("only receiver answers transmissions; wrong attempts retain the current rou
       at("signal", 1),
     ).state;
   }
-  assert.equal(s.chapter, 5);
+  assert.equal(s.chapter, 4);
+  assert.equal(s.round, 3);
 });
 test("power run can retry without losing investigation, needs both and enforces fuse role and deadline", () => {
   let s = prepared(5);
@@ -264,4 +273,94 @@ test("the shared album unlocks at the ending and preserves its page without chan
   assert.equal(next.galleryIndex, 29);
   assert.equal(next.chapter, 8);
   assert.equal(act(next, 0, { kind: "memory", index: 30 }, {}).changed, false);
+});
+
+test("folded atlas requires evidence, a present reader and alternating distinct runners; errors only reset the current fold", () => {
+  let s = { ...prepared(2), archiveOpen: true };
+  let p = {
+    0: pos("dream", -8, 6.4),
+    1: pos("dream", dreamTile(20).x, dreamTile(20).z),
+  };
+  assert.equal(act(s, 1, { kind: "dream-step", tile: 20 }, p).changed, false);
+  s.found.push("dream-a", "dream-b", "dream-c");
+  assert.equal(act(s, 0, { kind: "dream-step", tile: 20 }, p).changed, false);
+  for (let round = 0; round < 3; round++) {
+    const nav = dreamNavigator(round),
+      runner = 1 - nav;
+    p[nav] = pos("dream", -8, 6.4);
+    for (const tile of dreamRoutes[round]) {
+      const t = dreamTile(tile);
+      p[runner] = pos("dream", t.x, t.z);
+      s = act(s, runner, { kind: "dream-step", tile }, p).state;
+    }
+    assert.equal(s.dreamRound, round + 1);
+    assert.equal(s.dreamStep, 0);
+  }
+  assert.equal(s.chapter, 3);
+  const halfway = {
+    ...prepared(2),
+    archiveOpen: true,
+    dreamRound: 1,
+    dreamStep: 2,
+    found: ["dream-a", "dream-b", "dream-c"],
+  };
+  const wrong = {
+    0: pos("dream", dreamTile(20).x, dreamTile(20).z),
+    1: pos("dream", -8, 6.4),
+  };
+  const reset = act(halfway, 0, { kind: "dream-step", tile: 20 }, wrong).state;
+  assert.equal(reset.dreamRound, 1);
+  assert.equal(reset.dreamStep, 0);
+  assert.deepEqual(reset.found, halfway.found);
+  assert.equal(
+    travelTarget(prepared(2), pos("loft", 6, -1), "music-box"),
+    null,
+  );
+});
+test("copper circuit traces the complete physical path and enforces ownership and proximity", () => {
+  assert.equal(circuitSolved(new Array(16).fill(0)), true);
+  assert.equal(circuitSolved(circuitInitial), false);
+  let s = { ...prepared(4), round: 3, circuit: [...circuitInitial] };
+  const p = { 0: pos("lab", -8, -3.7), 1: pos("lab", 8, -3.7) };
+  assert.equal(act(s, 1, { kind: "circuit-turn", cell: 0 }, p).changed, false);
+  assert.equal(
+    act(s, 0, { kind: "circuit-turn", cell: 0 }, { 0: pos("house", -8, -3.7) })
+      .changed,
+    false,
+  );
+  for (let cell = 0; cell < 16; cell++) {
+    const owner = (Math.floor(cell / 4) + (cell % 4)) % 2;
+    for (let n = 0; n < (4 - circuitInitial[cell]) % 4; n++)
+      s = act(s, owner, { kind: "circuit-turn", cell }, p).state;
+  }
+  assert.equal(s.chapter, 5);
+  assert.equal(circuitSolved(s.circuit), true);
+});
+test("linked mirrors can reach every target, need both nearby holds and never erase an earlier constellation", () => {
+  let s = { ...prepared(6), skyAligned: true, mirrors: [0, 0], mirrorRound: 0 };
+  const p = { 0: pos("observatory", -6, 0), 1: pos("observatory", 6, 0) };
+  const reachable = new Set();
+  for (let a = 0; a < 12; a++)
+    for (let b = 0; b < 12; b++)
+      reachable.add(`${(a + 3 * b) % 12},${(2 * a + b) % 12}`);
+  assert.equal(reachable.size, 144);
+  assert.equal(act(s, 0, { kind: "mirror-hold" }, p).changed, false);
+  for (const [round, target] of mirrorTargets.entries()) {
+    let turns;
+    for (let a = 0; a < 12; a++)
+      for (let b = 0; b < 12; b++)
+        if (
+          (s.mirrors[0] + a + 3 * b) % 12 === target[0] &&
+          (s.mirrors[1] + 2 * a + b) % 12 === target[1]
+        )
+          turns = [a, b];
+    for (let role = 0; role < 2; role++)
+      for (let n = 0; n < turns[role]; n++)
+        s = act(s, role, { kind: "mirror-turn", direction: 1 }, p).state;
+    s = act(s, 0, { kind: "mirror-hold" }, p).state;
+    assert.equal(s.mirrorRound, round);
+    s = act(s, 1, { kind: "mirror-hold" }, p).state;
+    assert.equal(s.mirrorRound, round + 1);
+  }
+  assert.equal(s.chapter, 7);
 });

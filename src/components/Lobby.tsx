@@ -1,3 +1,4 @@
+import { StudioEnvironment, Cinema } from "../game/Atmosphere";
 import { Suspense, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, Float, Sparkles } from "@react-three/drei";
@@ -16,6 +17,37 @@ function LittleHouse() {
     <group position={[1, 0, -3]}>
       <Box p={[0, 0.1, 0]} s={[9, 0.5, 7]} color="#64664f" />
       <Box p={[0, 2.1, 0]} s={[8, 4, 6]} color="#426257" />
+      {Array.from({ length: 14 }, (_, i) => (
+        <Box
+          key={i}
+          p={[0, 0.34 + i * 0.26, 3.025]}
+          s={[8, 0.015, 0.035]}
+          color="#597269"
+        />
+      ))}
+      {[-1, 1].map((side) => (
+        <group key={side}>
+          <Box
+            p={[side * 0.9, 1.6, 3.2]}
+            s={[0.12, 2.9, 0.18]}
+            color="#d8c8a5"
+          />
+          <Box
+            p={[side * 3.87, 2.1, 3.05]}
+            s={[0.12, 4, 0.14]}
+            color="#d8c8a5"
+          />
+          {[1, 2, 3].map((i) => (
+            <Box
+              key={i}
+              p={[side * 0.3, 0.7 + i * 0.46, 3.195]}
+              s={[0.46, 0.36, 0.04]}
+              color="#8e724e"
+            />
+          ))}
+        </group>
+      ))}
+      <Box p={[0, 3.06, 3.2]} s={[2.1, 0.17, 0.25]} color="#d8c8a5" />
       <Box p={[0, 0.55, 3.02]} s={[8, 0.7, 0.12]} color="#ddd0ac" />
       <Box p={[0, 2.9, 3.02]} s={[8, 0.1, 0.14]} color="#ba9a63" />
       <Box p={[0, 1.6, 3.06]} s={[1.6, 2.7, 0.15]} color="#39483e" />
@@ -49,7 +81,32 @@ function LittleHouse() {
             s={[2.2, 0.14, 0.45]}
             color="#d9c49a"
           />
-          <Plant p={[side * 3.6, 0.3, 3.8]} scale={1.4} />
+          <Plant p={[side * 3.6, 0.3, 3.8]} scale={1.75} />
+        </group>
+      ))}
+      {Array.from({ length: 13 }, (_, i) => (
+        <Box
+          key={i}
+          p={[-3.9 + i * 0.65, 4.12, 3.25]}
+          s={[0.11, 0.26, 0.24]}
+          color="#a38f67"
+        />
+      ))}
+      {[-1, 1].map((side) => (
+        <group key={side}>
+          {Array.from({ length: 8 }, (_, i) => (
+            <Box
+              key={i}
+              p={[side * 1.73, 0.5, 3.7 + i * 0.52]}
+              s={[0.045, 0.75, 0.045]}
+              color="#738573"
+            />
+          ))}
+          <Box
+            p={[side * 1.73, 0.92, 5.5]}
+            s={[0.1, 0.09, 4]}
+            color="#c9ba93"
+          />
         </group>
       ))}
       <Box p={[0, 4.08, 0]} s={[8.6, 0.22, 6.6]} color="#d8c391" />
@@ -96,11 +153,12 @@ export function Lobby({
         >
           <color attach="background" args={["#15332e"]} />
           <fog attach="fog" args={["#15332e", 22, 47]} />
-          <ambientLight intensity={0.9} />
-          <hemisphereLight intensity={1.6} args={["#dfddc8", "#2b463b"]} />
+          <StudioEnvironment />
+          <ambientLight intensity={0.3} />
+          <hemisphereLight intensity={0.85} args={["#dfddc8", "#2b463b"]} />
           <directionalLight
             position={[-5, 12, 9]}
-            intensity={3}
+            intensity={2}
             color="#ffe0a5"
             castShadow
             shadow-mapSize={[1024, 1024]}
@@ -117,10 +175,10 @@ export function Lobby({
                 <meshStandardMaterial color="#29483b" />
               </mesh>
               <group position={[-0.7, 0, 4.8]} rotation={[0, -0.28, 0]}>
-                <Puppy role={0} scale={1.45} />
+                <Puppy role={0} scale={1.8} />
               </group>
-              <group position={[1.25, 0, 5.1]} rotation={[0, 0.15, 0]}>
-                <Puppy role={1} scale={1.4} />
+              <group position={[1.55, 0, 5.1]} rotation={[0, 0.15, 0]}>
+                <Puppy role={1} scale={1.75} />
               </group>
               <Plant p={[-5, 0, 1]} scale={3.2} />
               <Plant p={[7, 0, 1]} scale={3.4} />
@@ -141,6 +199,7 @@ export function Lobby({
               />
             </group>
           </Suspense>
+          <Cinema lobby />
         </Canvas>
       </div>
       <div className="lobby-shade" />

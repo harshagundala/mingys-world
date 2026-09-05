@@ -2321,3 +2321,324 @@ button:active:not(:disabled) {
     margin: 25px auto 0;
   }
 }
+
+.challenge-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #806c3f;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  margin: 16px 0;
+}
+.puzzle-story {
+  font-family: Fraunces, Georgia, serif;
+  font-size: 20px !important;
+  line-height: 1.5 !important;
+  color: #67653f !important;
+}
+.dream-map {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+  margin: 46px auto;
+  max-width: 340px;
+  aspect-ratio: 1;
+  padding: 10px;
+  border: 1px solid #9f946c;
+  border-radius: 8px;
+  background: #c3b28c;
+  box-shadow: 0 12px 40px #0005;
+}
+.dream-map > div {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #b1a17e;
+  color: #6b6652;
+  border: 1px solid #92836388;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+}
+.dream-map > div.route {
+  background: #e5d6b1;
+  color: #364d44;
+}
+.dream-map b {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 16px;
+  color: #8e584e;
+}
+.dream-map b.visited {
+  color: #27765a;
+}
+.asymmetric-note {
+  padding: 25px;
+  border-radius: 18px;
+  background: #d8cbaa0d;
+  border: 1px solid #d8cbaa26;
+  text-align: center;
+}
+.asymmetric-note > svg {
+  color: #cbb07c;
+  margin: 0 auto 12px;
+}
+.asymmetric-note h3 {
+  font-family: Fraunces, serif;
+  font-size: 25px;
+  font-weight: 400;
+}
+.circuit-board {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 28px auto 24px;
+  max-width: 360px;
+  padding: 8px;
+  background: #091e20;
+  border: 1px solid #c7a46655;
+  border-radius: 14px;
+}
+.circuit-board button {
+  position: relative;
+  aspect-ratio: 1;
+  border: 1px solid #bb9b6533;
+  border-radius: 8px;
+  background: #29443e;
+  transition:
+    background 0.15s,
+    transform 0.15s;
+}
+.circuit-board button.role-1 {
+  background: #523b48;
+}
+.circuit-board button:disabled {
+  opacity: 0.78;
+  cursor: default;
+}
+.circuit-board button:not(:disabled):hover {
+  background: #496452;
+}
+.circuit-board svg {
+  width: 100%;
+  height: 100%;
+  stroke: #d2ad69;
+  fill: #92733d;
+}
+.circuit-board small {
+  position: absolute;
+  bottom: 4px;
+  right: 6px;
+  font-size: 10px;
+  color: #eee2c688;
+}
+.circuit-in,
+.circuit-out {
+  position: absolute;
+  left: -40px;
+  font-size: 10px;
+  color: #766033;
+  top: 10%;
+}
+.circuit-out {
+  top: auto;
+  bottom: 10%;
+  left: -49px;
+}
+.mirror-pair {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  margin: 22px 0;
+}
+.mirror-dial {
+  width: 42%;
+  text-align: center;
+  color: #94d6bd;
+}
+.mirror-dial.role-1 {
+  color: #e2a4b9;
+}
+.mirror-dial svg {
+  width: 100%;
+  overflow: visible;
+}
+.mirror-dial circle {
+  fill: #10292d;
+  stroke: #ae925c;
+  stroke-width: 1.5;
+}
+.mirror-dial text {
+  fill: currentColor;
+  text-anchor: middle;
+  font-family: Fraunces, serif;
+  font-size: 12px;
+}
+.mirror-dial line {
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.mirror-dial .dial-pin {
+  fill: #e0c58a;
+}
+.mirror-dial > span {
+  font-size: 12px;
+  color: #36715f;
+}
+.mirror-dial.role-1 > span {
+  color: #8c4b61;
+}
+.mirror-controls {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.mirror-controls button {
+  font-size: 12px;
+}
+.button:active:not(:disabled),
+.icon-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.camera-onboarding {
+  margin: 22px 0;
+  padding: 22px;
+  border: 1px solid #d4bf8738;
+  border-radius: 18px;
+  background: #dfc8870a;
+}
+.camera-onboarding-copy {
+  display: flex;
+  gap: 14px;
+}
+.camera-onboarding-copy > svg {
+  flex: none;
+  color: #d0b57b;
+  margin-top: 4px;
+}
+.camera-onboarding h3 {
+  margin: 0 0 7px;
+  font-size: 16px;
+}
+.camera-onboarding p {
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+}
+.camera-onboarding-action {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  margin: 16px 0 0;
+}
+.camera-onboarding .camera-tile {
+  position: relative;
+  width: 104px;
+  height: 80px;
+  flex-shrink: 0;
+  transform: none;
+}
+.camera-onboarding .camera-tile:after {
+  display: none;
+}
+.camera-setup-error {
+  color: #973e3a !important;
+  margin: 16px 0 0 !important;
+}
+.camera-onboarding-action button {
+  white-space: normal;
+  text-align: left;
+}
+.reset-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 24px;
+  background: radial-gradient(ellipse at 50% 35%, #365b4d, #102a29 65%);
+  color: #f1e7cf;
+}
+.reset-page > .wordmark {
+  align-self: flex-start;
+}
+.reset-card {
+  max-width: 520px;
+  width: 100%;
+  text-align: center;
+  margin: 60px auto 30px;
+  padding: 35px;
+  border: 1px solid #dfce9c33;
+  border-radius: 28px;
+  background: #18362eaa;
+  box-shadow: 0 25px 80px #0003;
+}
+.reset-emblem {
+  display: grid;
+  place-items: center;
+  width: 70px;
+  height: 70px;
+  margin: 0 auto 28px;
+  border-radius: 50%;
+  background: #d7bc7f17;
+  color: #d7bc7f;
+}
+.reset-card h1 {
+  font-family: Fraunces, Georgia, serif;
+  font-size: 52px;
+  font-weight: 400;
+  line-height: 1.08;
+  margin: 18px 0 24px;
+}
+.reset-card h1 em {
+  color: #d7bc7f;
+  font-style: normal;
+}
+.reset-card p {
+  font-size: 14px;
+  line-height: 1.75;
+  color: #c5cec0;
+}
+.reset-card .reset-small {
+  font-size: 12px;
+  color: #a1b5a9;
+  margin: 18px 0 30px;
+}
+.reset-foot {
+  font-size: 12px;
+  color: #93ab9e;
+}
+.fresh-invitation label {
+  display: block;
+  text-align: left;
+  font-size: 11px;
+  margin: 16px 0 8px;
+  color: #b4c4b8;
+}
+.fresh-invitation input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #cfb77d44;
+  border-radius: 9px;
+  color: #dae1d1;
+  background: #0e2826;
+  font-size: 12px;
+}
+.fresh-invitation > div {
+  display: flex;
+  gap: 12px;
+  margin-top: 15px;
+  justify-content: center;
+}
+.fresh-invitation a {
+  text-decoration: none;
+}
+.reset-page .edition {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+}

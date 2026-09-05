@@ -1,3 +1,9 @@
+import {
+  dreamRoutes,
+  dreamTile,
+  dreamNavigator,
+  mirrorTargets,
+} from "../src/game/adventure.ts";
 import { clues } from "../src/game/content.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -10,6 +16,14 @@ const report = (name, data = {}) => {
   console.log(name, data);
   log.push({ name, ...data, time: new Date().toISOString() });
 };
+async function waitState(test, label = "State update") {
+  for (let i = 0; i < 90; i++) {
+    const s = (await a.state()).snapshot.state;
+    if (test(s)) return s;
+    await sleep(100);
+  }
+  throw new Error(label + " timed out");
+}
 async function route(p, points) {
   await p.press("Escape");
   for (const [x, z] of points) await p.move(x, z);
@@ -30,6 +44,37 @@ async function read(p, points, title) {
   await open(p, title);
   await sleep(180);
   await p.press("Escape");
+}
+async function collectFuse(p, id, points) {
+  if ((await p.state()).snapshot.state.fuses.includes(id)) return;
+  await route(p, points);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await p.press("Escape");
+    if (attempt) {
+      await p.press("Space");
+      await p.move(...points.at(-1));
+    }
+    for (let i = 0; i < 8; i++) {
+      if (
+        await p.eval(
+          `document.querySelector('.interaction-prompt')?.textContent.includes('Restore your fuse')`,
+        )
+      )
+        break;
+      await sleep(100);
+    }
+    if (
+      await p.eval(
+        `document.querySelector('.interaction-prompt')?.textContent.includes('Restore your fuse')`,
+      )
+    )
+      await p.press("KeyE");
+    for (let i = 0; i < 15; i++) {
+      if ((await p.state()).snapshot.state.fuses.includes(id)) return;
+      await sleep(100);
+    }
+  }
+  assert.fail("Fuse not collected: " + id);
 }
 async function chapter(n) {
   for (let i = 0; i < 70; i++) {
@@ -226,7 +271,60 @@ try {
     );
     await screen(a, "library-deduction");
     await a.clickText("Reconstruct the evening");
+    await waitState((s) => s.archiveOpen, "Music box opens");
+    for (const p of players)
+      await travel(
+        p,
+        [
+          [6, 1],
+          [6, -1],
+        ],
+        "dream",
+      );
+    await Promise.all([
+      read(a, [[5.7, 4]], "The tea is getting rather large"),
+      read(b, [[-8, -3.5]], "The architecture of missing someone"),
+    ]);
+    await read(
+      a,
+      [
+        [5, -1],
+        [8, -4],
+      ],
+      "An astronomer in a paper boat",
+    );
+    await screen(a, "impossible-garden");
+    for (let round = 0; round < 3; round++) {
+      const nav = players[dreamNavigator(round)],
+        runner = players[1 - dreamNavigator(round)];
+      await route(nav, [
+        [-5, 6.5],
+        [-8, 6.4],
+      ]);
+      await open(nav, "The atlas of rooms that cannot exist");
+      await runner.press("Escape");
+      for (const [step, tile] of dreamRoutes[round].entries()) {
+        const { x, z } = dreamTile(tile);
+        await runner.move(x, z);
+        await sleep(220);
+        await runner.press("KeyE");
+        await waitState(
+          (s) => (s.dreamRound || 0) > round || (s.dreamStep || 0) > step,
+          "Dream tile " + tile,
+        );
+      }
+      report("Folded atlas walked by correct collar", { round: round + 1 });
+    }
     await chapter(3);
+    for (const p of players)
+      await travel(
+        p,
+        [
+          [0, 6],
+          [0, 9.2],
+        ],
+        "loft",
+      );
   }
   if ((await a.state()).snapshot.state.chapter === 3) {
     await travel(
@@ -375,7 +473,10 @@ try {
       ["sun", "star", "moon", "paw", "sun"],
       ["star", "paw", "sun", "moon", "star", "sun"],
     ];
-    while ((await b.state()).snapshot.state.chapter === 4) {
+    while (
+      (await b.state()).snapshot.state.chapter === 4 &&
+      (await b.state()).snapshot.state.round < 3
+    ) {
       const round = (await b.state()).snapshot.state.round;
       await b.clickText("Clear");
       await sleep(100);
@@ -391,8 +492,31 @@ try {
         "Transmission did not advance",
       );
     }
+    await waitState((s) => s.round === 3, "Transmissions complete");
+    await Promise.all([route(a, [[-8, -3.7]]), route(b, [[8, -3.7]])]);
+    await open(a, "The mint circuit panel");
+    await open(b, "The rose circuit panel");
+    await screen(a, "copper-circuit");
+    for (let i = 0; i < 16; i++) {
+      const owner = (Math.floor(i / 4) + (i % 4)) % 2,
+        p = players[owner];
+      for (let turn = 0; turn < 4; turn++) {
+        const s = (await a.state()).snapshot.state;
+        if (s.chapter === 5 || s.circuit[i] === 0) break;
+        const previous = s.circuit[i];
+        await p.eval(
+          `document.querySelector('[aria-label="Turn pipe ${i + 1}"]').click()`,
+        );
+        await waitState(
+          (s) => s.chapter === 5 || s.circuit[i] !== previous,
+          "Copper pipe " + i,
+        );
+      }
+    }
     await chapter(5);
-    report("All three asymmetric transmissions completed");
+    report(
+      "Three asymmetric transmissions and shared copper circuit completed",
+    );
   }
   if ((await a.state()).snapshot.state.chapter === 5) {
     await route(a, [
@@ -430,15 +554,7 @@ try {
             ],
           ],
         ]) {
-          await route(a, points);
-          await a.press("KeyE");
-          for (
-            let i = 0;
-            i < 50 && !(await a.state()).snapshot.state.fuses.includes(id);
-            i++
-          )
-            await sleep(100);
-          assert.ok((await a.state()).snapshot.state.fuses.includes(id), id);
+          await collectFuse(a, id, points);
         }
       })(),
       (async () => {
@@ -468,15 +584,7 @@ try {
             ],
           ],
         ]) {
-          await route(b, points);
-          await b.press("KeyE");
-          for (
-            let i = 0;
-            i < 50 && !(await b.state()).snapshot.state.fuses.includes(id);
-            i++
-          )
-            await sleep(100);
-          assert.ok((await b.state()).snapshot.state.fuses.includes(id), id);
+          await collectFuse(b, id, points);
         }
       })(),
     ]);
@@ -553,6 +661,42 @@ try {
     await open(a, "The celestial orrery");
     await screen(a, "observatory-puzzle");
     await sequence(a, ["moon", "comet", "sun", "paw", "key"], "Align the sky");
+    await waitState((s) => s.skyAligned, "Sky alignment");
+    await Promise.all([route(a, [[-6, 1.05]]), route(b, [[6, 1.05]])]);
+    await open(a, "The western mirror");
+    await open(b, "The eastern mirror");
+    await screen(a, "linked-mirrors");
+    for (let round = 0; round < 3; round++) {
+      const s = (await a.state()).snapshot.state,
+        angles = s.mirrors || [0, 0],
+        target = mirrorTargets[round];
+      let turns;
+      for (let i = 0; i < 12; i++)
+        for (let j = 0; j < 12; j++)
+          if (
+            (angles[0] + i + j * 3) % 12 === target[0] &&
+            (angles[1] + i * 2 + j) % 12 === target[1]
+          )
+            turns = [i, j];
+      assert.ok(turns, "Linked mirrors reachable");
+      for (const [r, count] of turns.entries())
+        for (let i = 0; i < count; i++) {
+          const before = JSON.stringify(
+            (await a.state()).snapshot.state.mirrors,
+          );
+          await players[r].clickText("One step forward");
+          await waitState(
+            (s) => JSON.stringify(s.mirrors) !== before,
+            "Mirror rotation",
+          );
+        }
+      await Promise.all(players.map((p) => p.clickText("Hold my reflection")));
+      await waitState(
+        (s) => (s.mirrorRound || 0) > round || s.chapter === 7,
+        "Constellation held",
+      );
+      report("Both collars held linked constellation", { round: round + 1 });
+    }
     await chapter(7);
   }
   if ((await a.state()).snapshot.state.chapter === 7) {

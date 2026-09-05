@@ -1,0 +1,3 @@
+Wooden Floor 02 by Poly Haven. CC0.
+https://polyhaven.com/a/wooden_floor_02
+Source resolution: 1K. Diffuse, OpenGL normal and roughness maps.

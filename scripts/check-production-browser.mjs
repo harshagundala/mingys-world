@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { Browser, sleep } from "./cdp.mjs";
-const origin = "https://mingys-world.vercel.app";
+const origin = process.env.QA_ORIGIN || "https://mingy.world";
 const room = "qa-" + crypto.randomUUID();
 const players = [];
 const report = [];
@@ -33,10 +33,11 @@ try {
       "Page.addScriptToEvaluateOnNewDocument",
       {
         source: `
- window.__qa={sockets:[],peers:[],outgoing:[],messages:[],cameraRequests:[]};
+window.__qa={sockets:[],peers:[],outgoing:[],messages:[],cameraRequests:[],channels:[]};
  const NativeWS=window.WebSocket;window.WebSocket=class extends NativeWS{constructor(...args){super(...args);if(String(args[0]).includes('/api/ws')){window.__qa.sockets.push(this);this.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.state)window.__qa.state=m.state;if(m.type==='pose')window.__qa.partner=m.pose;window.__qa.messages.push(m.type);});}}send(raw){try{const m=JSON.parse(raw);if(window.__qa.blockDirect&&m.type==='rtc'){if(m.data.candidate)return;if(m.data.description){m.data.description.sdp=m.data.description.sdp.split('\\r\\n').filter(line=>!line.startsWith('a=candidate:')).join('\\r\\n');raw=JSON.stringify(m);}}if(m.type==='pose'){window.__qa.pose=m.pose;window.__qa.outgoing.push(m.pose);if(window.__qa.outgoing.length>400)window.__qa.outgoing.shift();}}catch{}return super.send(raw);}};
- const NativeRTC=window.RTCPeerConnection;window.RTCPeerConnection=class extends NativeRTC{constructor(...args){super(...args);window.__qa.peers.push(this);}};
- navigator.mediaDevices.getUserMedia=async constraints=>{window.__qa.cameraRequests.push(constraints);const c=document.createElement('canvas');c.width=320;c.height=240;let n=0;setInterval(()=>{const x=c.getContext('2d');x.fillStyle='${i ? "#9c687b" : "#487d66"}';x.fillRect(0,0,320,240);x.fillStyle='#ffeac4';x.font='24px sans-serif';x.fillText('Mingy ${i + 1}',80,100);x.fillRect((n++*7)%300,160,20,20);},80);return c.captureStream(12);};
+ const bindChannel=c=>{window.__qa.channels.push(c);c.addEventListener('message',e=>{try{window.__qa.directPartner=JSON.parse(e.data)}catch{}})};
+ const NativeRTC=window.RTCPeerConnection;window.RTCPeerConnection=class extends NativeRTC{constructor(...args){super(...args);window.__qa.peers.push(this);this.addEventListener('datachannel',e=>bindChannel(e.channel));}createDataChannel(...args){const c=super.createDataChannel(...args);bindChannel(c);return c;}};
+ const getUserMedia=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);navigator.mediaDevices.getUserMedia=constraints=>{window.__qa.cameraRequests.push(constraints);return getUserMedia(constraints);};
  `,
       },
       true,
@@ -48,7 +49,6 @@ try {
           origin +
           "/#" +
           new URLSearchParams({
-            invite: process.env.WORLD_SECRET.trim(),
             room,
           }),
       },
@@ -68,7 +68,8 @@ try {
   }
   const [a, b] = players;
   await until(a, "window.__qa.peers.at(-1)?.connectionState==='connected'");
-  assert.equal(await a.eval("typeof window.__mingy"), "undefined");
+  if (origin.startsWith("https"))
+    assert.equal(await a.eval("typeof window.__mingy"), "undefined");
   for (const [i, p] of players.entries()) {
     await p.press("Escape");
     if (i === 0) {
@@ -100,7 +101,7 @@ try {
   await until(a, "window.__qa.state?.chapter===1");
   await until(b, "window.__qa.state?.chapter===1");
   log(
-    "Production keyboard movement, jump, interaction, two-player chapter and direct data channel passed",
+    "Browser keyboard movement, jump, interaction, two-player chapter and direct data channel passed",
   );
   for (const p of players) {
     await p.press("Escape");
@@ -123,8 +124,27 @@ try {
     assert.ok(
       v.dataChannels.some((c) => c.state === "open" && c.messagesReceived > 10),
     );
-    log("Production bidirectional video and movement", { player: i, ...v });
+    log("Browser bidirectional video and movement", { player: i, ...v });
   }
+  async function matchingPositions(direct) {
+    await sleep(800);
+    for (const [i, p] of players.entries()) {
+      const own = await p.eval("window.__qa.pose");
+      const remote = await players[1 - i].eval(
+        direct ? "window.__qa.directPartner" : "window.__qa.partner",
+      );
+      assert.ok(remote, "the other browser receives this puppy's movement");
+      assert.equal(remote.place, own.place);
+      assert.ok(Math.hypot(own.x - remote.x, own.z - remote.z) < 0.3);
+    }
+  }
+  await matchingPositions(true);
+  const barks = await b.eval(
+    "window.__qa.messages.filter(m=>m==='bark').length",
+  );
+  await a.press("KeyB");
+  await until(b, `window.__qa.messages.filter(m=>m==='bark').length>${barks}`);
+  log("Both peer positions match, and bark events reach the other puppy");
   const oldCount = await a.eval("window.__qa.sockets.length");
   await a.eval(
     "window.__qa.sockets.at(-1).close(4000,'QA reconnection check')",
@@ -138,7 +158,7 @@ try {
   assert.equal(await a.eval("window.__qa.state.chapter"), 1);
   for (const p of players) assert.ok((await video(p)).inbound[0] > 5);
   log(
-    "Production WebSocket reconnection preserves progress and restores both cameras",
+    "Browser WebSocket reconnection preserves progress and restores both cameras",
   );
   // Remove ICE candidates to model two laptops whose networks refuse a direct path.
   for (const p of players) {
@@ -168,6 +188,13 @@ try {
   log(
     "Both camera tiles receive live fallback frames with ICE candidates blocked",
   );
+  for (const p of players) {
+    await p.key("ArrowDown");
+    await sleep(400);
+    await p.key("ArrowDown", false);
+  }
+  await matchingPositions(false);
+  log("Movement also stays synchronized over the WebSocket fallback");
   for (const p of players) await p.eval("window.__qa.blockDirect=false");
   await a.eval(
     "window.__qa.sockets.at(-1).close(4000,'QA restore direct path')",
@@ -176,6 +203,29 @@ try {
   await sleep(1500);
   for (const p of players) assert.ok((await video(p)).inbound[0] > 5);
   log("Direct video recovers after the blocked-network test");
+  const counts = await Promise.all(
+    players.map((p) => p.eval("window.__qa.sockets.length")),
+  );
+  await Promise.all(
+    players.map((p) =>
+      p.eval(
+        "window.__qa.sockets.at(-1).close(4000,'QA simultaneous reconnect')",
+      ),
+    ),
+  );
+  for (const [i, p] of players.entries()) {
+    await until(
+      p,
+      `window.__qa.sockets.length>${counts[i]}&&window.__qa.peers.at(-1)?.connectionState==='connected'`,
+    );
+    await until(p, "window.__qa.state.chapter===1");
+  }
+  await sleep(1600);
+  for (const p of players) assert.ok((await video(p)).inbound[0] > 5);
+  await matchingPositions(true);
+  log(
+    "Simultaneous reconnection restores both videos, motion and shared progress",
+  );
 
   const { data } = await a.call(
     "Page.captureScreenshot",
@@ -187,11 +237,11 @@ try {
     Buffer.from(data, "base64"),
   );
   for (const p of players) assert.deepEqual(p.errors, []);
-  log("No uncaught browser errors on either production client");
+  log("No uncaught browser errors on either browser");
   fs.writeFileSync(
     "output/production-browser-report.json",
     JSON.stringify(
-      { passed: true, at: new Date().toISOString(), checks: report },
+      { passed: true, origin, at: new Date().toISOString(), checks: report },
       null,
       2,
     ),

@@ -8,9 +8,12 @@ import { clues } from "../src/game/content.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { Browser, sleep } from "./cdp.mjs";
-const a = await new Browser("mingy-a").connect(),
-  b = await new Browser("mingy-b").connect();
-const players = [a, b];
+const connections = await Promise.all(
+  ["mingy-a", "mingy-b"].map((name) => new Browser(name).connect()),
+);
+const players = [];
+for (const p of connections) players[(await p.state()).snapshot.role] = p;
+const [a, b] = players;
 const log = [];
 const report = (name, data = {}) => {
   console.log(name, data);
@@ -87,6 +90,8 @@ async function chapter(n) {
   }
   assert.equal((await a.state()).snapshot.state.chapter, n);
   assert.equal((await b.state()).snapshot.state.chapter, n);
+  const shared = await Promise.all(players.map((p) => p.state()));
+  assert.deepEqual(shared[0].snapshot.state, shared[1].snapshot.state);
   for (const p of players) await p.press("Escape");
   await sleep(250);
   report("Chapter synchronized", { chapter: n });

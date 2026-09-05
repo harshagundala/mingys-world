@@ -91,6 +91,7 @@ class Session extends EventTarget {
     if (this.closed) return;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${protocol}//${location.host}/api/ws`);
+    let receivedState: GameState | null = null;
     this.ws = ws;
     ws.onopen = () => {
       if (this.ws !== ws) return;
@@ -109,13 +110,20 @@ class Session extends EventTarget {
       } catch {
         return;
       }
+      // Pub/sub can deliver an update before the welcome finishes. Keep the
+      // newest state for this connection, including when a reset changed rooms.
+      if (
+        m.state &&
+        (!receivedState || m.state.version >= receivedState.version)
+      )
+        receivedState = m.state;
       if (m.type === "welcome") {
         this.retry = 0;
         this.poses = m.poses || {};
         this.local = m.pose;
         this.lastRemote = Date.now();
         this.update({
-          state: m.state,
+          state: receivedState,
           role: m.role,
           room: m.room || this.requestedRoom,
           status: "connected",

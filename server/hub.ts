@@ -227,14 +227,18 @@ export function attachSocket(ws: any, req: any) {
       if (!rooms.has(room)) rooms.set(room, new Set());
       rooms.get(room)!.add(ws);
       await subscribe(room);
+      const poses = await getPoses(room);
+      // A partner may have acted while this connection was subscribing.
+      // Read after subscription so the welcome cannot miss those updates.
+      const latest = await redis.get(key(room));
       clearTimeout(helloTimeout);
       send(ws, {
         type: "welcome",
         room,
-        state: result.state,
+        state: latest ? JSON.parse(latest) : result.state,
         role,
         pose,
-        poses: await getPoses(room),
+        poses,
       });
       pose.time = Date.now();
       await savePose();

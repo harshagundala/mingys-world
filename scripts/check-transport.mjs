@@ -8,19 +8,14 @@ if (origins.length === 1) origins.push(origins[0]);
 const room = "qa-" + crypto.randomUUID(),
   ids = [crypto.randomUUID(), crypto.randomUUID()];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function auth(origin) {
-  const r = await fetch(origin + "/api/session", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ invite: process.env.WORLD_SECRET }),
-  });
+async function publicSession(origin) {
+  const r = await fetch(origin + "/api/session");
   assert.equal(r.status, 200);
-  return r.headers.get("set-cookie").split(";")[0];
+  assert.equal((await r.json()).authorized, true);
 }
 class Peer {
-  constructor(origin, cookie, role, id = ids[role]) {
+  constructor(origin, role, id = ids[role]) {
     this.origin = origin;
-    this.cookie = cookie;
     this.role = role;
     this.id = id;
     this.state = null;
@@ -28,9 +23,7 @@ class Peer {
     this.instanceIds = new Set();
   }
   async open() {
-    this.ws = new WebSocket(this.origin.replace(/^http/, "ws") + "/api/ws", {
-      headers: { Cookie: this.cookie },
-    });
+    this.ws = new WebSocket(this.origin.replace(/^http/, "ws") + "/api/ws");
     this.ws.on("message", (raw) => {
       const m = JSON.parse(raw);
       this.messages.push(m);
@@ -69,9 +62,9 @@ class Peer {
     this.ws.close();
   }
 }
-const cookies = await Promise.all(origins.map(auth));
-const a = await new Peer(origins[0], cookies[0], 0).open(),
-  b = await new Peer(origins[1], cookies[1], 1).open();
+await Promise.all(origins.map(publicSession));
+const a = await new Peer(origins[0], 0).open(),
+  b = await new Peer(origins[1], 1).open();
 let again;
 try {
   await Promise.all([
@@ -109,12 +102,7 @@ try {
   await sleep(600);
   assert.equal(a.state.chapter, 1);
   console.log("Chapter skip rejected: passed");
-  const duplicate = await new Peer(
-    origins[0],
-    cookies[0],
-    0,
-    crypto.randomUUID(),
-  ).open();
+  const duplicate = await new Peer(origins[0], 0, crypto.randomUUID()).open();
   await duplicate.until(() =>
     duplicate.messages.some((m) => m.type === "error" && m.fatal),
   );
@@ -123,7 +111,7 @@ try {
   const before = structuredClone(a.state);
   a.close();
   await sleep(350);
-  again = await new Peer(origins[0], cookies[0], 0).open();
+  again = await new Peer(origins[0], 0).open();
   await again.until(() => again.messages.some((m) => m.type === "welcome"));
   assert.equal(again.state.chapter, before.chapter);
   assert.deepEqual([...again.state.found].sort(), [...before.found].sort());
@@ -131,20 +119,17 @@ try {
   const instanceIds = new Set([...a.instanceIds, ...b.instanceIds]);
   console.log("Observed server instances:", instanceIds.size);
   if (origins[0] !== origins[1]) assert.ok(instanceIds.size >= 2);
-  const unauthorized = await fetch(origins[0] + "/api/photo?id=0");
-  assert.equal(unauthorized.status, 401);
-  const invalid = await fetch(origins[0] + "/api/photo?id=../../.env.local", {
-    headers: { Cookie: cookies[0] },
-  });
+  const publicPhoto = await fetch(origins[0] + "/api/photo?id=0");
+  assert.equal(publicPhoto.status, 200);
+  const invalid = await fetch(origins[0] + "/api/photo?id=../../.env.local");
   assert.equal(invalid.status, 404);
-  console.log("Private photo access and path validation: passed");
+  console.log("Public photo access and path validation: passed");
   let verified = 0;
   for (let offset = 0; offset < 30; offset += 5) {
     await Promise.all(
       Array.from({ length: 5 }, async (_, j) => {
         const r = await fetch(
           origins[0] + `/api/photo?id=${offset + j}&thumb=1`,
-          { headers: { Cookie: cookies[0] } },
         );
         assert.equal(r.status, 200);
         assert.match(r.headers.get("content-type"), /image\/webp/);

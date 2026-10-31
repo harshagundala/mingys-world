@@ -12,17 +12,7 @@ export default defineConfig({
   },
   build: {
     chunkSizeWarningLimit: 1400,
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (
-            id.includes("node_modules") &&
-            /three|react-three\/fiber|react-three\/drei/.test(id)
-          )
-            return "three";
-          if (id.includes("rapier")) return "physics";
-        },
-      },
-    },
+    // Let route imports define shared chunks. Manual vendor groups recursively
+    // pulled Rapier into the shared renderer, making both games download it.
   },
 });

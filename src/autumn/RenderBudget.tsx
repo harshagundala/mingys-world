@@ -32,6 +32,7 @@ export function RenderBudget({
     lastAdjust: -Infinity,
   });
   const desired = useRef(1);
+  const balanced = quality === "balanced" || quality === "medium";
   const gpu = useRef({
     driver: null as null | {
       context: WebGL2RenderingContext;
@@ -53,7 +54,7 @@ export function RenderBudget({
   const maxPixels =
     quality === "low"
       ? 1_100_000
-      : quality === "medium"
+      : balanced
         ? 1_650_000
         : 2_600_000;
   const cap = Math.min(
@@ -74,7 +75,7 @@ export function RenderBudget({
     stats.current.seconds = 0;
     renderBudget.pressure = 0;
     renderBudget.reflectionIntervalMs =
-      quality === "low" ? 100 : quality === "medium" ? 66 : 40;
+      quality === "low" ? 100 : balanced ? 66 : 40;
     renderBudget.shadowIntervalMs = quality === "low" ? 66 : 33;
   }, [quality, cap, setDpr, onDprChange]);
 
@@ -328,7 +329,7 @@ export function RenderBudget({
       }
     } else q.fast = 0;
     renderBudget.reflectionIntervalMs =
-      (quality === "low" ? 100 : quality === "medium" ? 66 : 40) +
+      (quality === "low" ? 100 : balanced ? 66 : 40) +
       renderBudget.pressure * 24;
     renderBudget.shadowIntervalMs =
       (quality === "low" ? 66 : 33) + renderBudget.pressure * 8;

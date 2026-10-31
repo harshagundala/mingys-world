@@ -90,7 +90,11 @@ export function ReflectiveWater({
   const reflector = useMemo(() => {
     const geometry = new T.PlaneGeometry(river ? 38 : 320, river ? 1800 : 20);
     const resolution =
-      quality === "low" ? 256 : quality === "medium" ? 512 : 768;
+      quality === "low"
+        ? 256
+        : quality === "medium" || quality === "balanced"
+          ? 512
+          : 768;
     const water = new Reflector(geometry, {
       textureWidth: resolution,
       textureHeight: resolution,

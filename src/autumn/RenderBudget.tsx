@@ -45,6 +45,8 @@ export function RenderBudget({
     probes: 0,
     firstProbeAt: 0,
     sampleAt: 0,
+    cpuFrameStart: 0,
+    cpuMs: null as number | null,
     ms: null as number | null,
     samples: [] as number[],
   });
@@ -87,8 +89,16 @@ export function RenderBudget({
       timing.epoch++;
       timing.frames = timing.nextFrame = 0;
       timing.firstProbeAt = timing.sampleAt = 0;
+      timing.cpuMs = null;
       stats.current.warm = stats.current.seconds = 0;
       stats.current.frames = [];
+      gl.shadowMap.autoUpdate = false;
+      gl.shadowMap.needsUpdate = true;
+      if (import.meta.env.DEV) {
+        gl.info.autoReset = false;
+        const debug = (window as any).__autumn;
+        if (debug) debug.renderInfo = gl.info;
+      }
     };
     const release = () => {
       const extension = timing.driver?.extension;
@@ -109,11 +119,18 @@ export function RenderBudget({
       timing.samples = [];
       timing.ms = null;
       timing.driver = null;
+      timing.cpuFrameStart = 0;
     };
     initialize();
     // Runs after every renderer/composer pass, including water reflections. It
     // does not take rendering ownership or add an extra render pass.
     const remove = addAfterEffect(() => {
+      if (timing.cpuFrameStart) {
+        const ms = performance.now() - timing.cpuFrameStart;
+        timing.cpuFrameStart = 0;
+        timing.cpuMs =
+          timing.cpuMs === null ? ms : timing.cpuMs * 0.9 + ms * 0.1;
+      }
       if (!timing.active || !timing.driver) return;
       const { extension } = timing.driver;
       if (context.isContextLost()) {
@@ -151,6 +168,7 @@ export function RenderBudget({
     gpu.current.firstProbeAt = gpu.current.sampleAt = 0;
     gpu.current.samples = [];
     gpu.current.ms = null;
+    gpu.current.cpuMs = null;
   }, [scenePhase, quality, cap]);
 
   useEffect(() => {
@@ -176,6 +194,7 @@ export function RenderBudget({
         gpu.current.epoch++;
         gpu.current.samples = [];
         gpu.current.ms = null;
+        gpu.current.cpuMs = null;
         gpu.current.firstProbeAt = gpu.current.sampleAt = 0;
         gl.shadowMap.needsUpdate = true;
         invalidate();
@@ -194,6 +213,7 @@ export function RenderBudget({
   useFrame((_, dt) => {
     const now = performance.now(),
       q = stats.current;
+    gpu.current.cpuFrameStart = now;
     if (now - q.shadowAt >= renderBudget.shadowIntervalMs) {
       gl.shadowMap.needsUpdate = true;
       q.shadowAt = now;
@@ -283,8 +303,16 @@ export function RenderBudget({
     const canRaiseResolution = gpuFresh
       ? timing.ms! < targetMs * 0.7
       : timerUnavailable && fast;
+    const cpuOverloaded =
+      timing.cpuMs !== null && timing.cpuMs > targetMs * 0.7;
+    const resourceHeadroom =
+      gpuFresh &&
+      timing.ms! < targetMs * 0.7 &&
+      timing.cpuMs !== null &&
+      timing.cpuMs < targetMs * 0.5;
     let next = desired.current;
-    if (slow) renderBudget.pressure = Math.min(2, renderBudget.pressure + 1);
+    if (slow && (gpuOverloaded || cpuOverloaded || timerUnavailable))
+      renderBudget.pressure = Math.min(2, renderBudget.pressure + 1);
     if (slow && gpuOverloaded && now - q.lastAdjust > 1800) {
       next = Math.max(floor, next - 0.12);
       q.fast = 0;
@@ -292,7 +320,8 @@ export function RenderBudget({
     } else if (canRaiseResolution) {
       q.fast++;
       if (q.fast >= 4 && now - q.lastAdjust > 8000) {
-        if (fast && renderBudget.pressure > 0) renderBudget.pressure--;
+        if ((fast || resourceHeadroom) && renderBudget.pressure > 0)
+          renderBudget.pressure--;
         else next = Math.min(cap, next + 0.08);
         q.fast = 0;
         q.lastAdjust = now;
@@ -330,8 +359,9 @@ export function RenderBudget({
             cadenceSamples: displayCadence.samples,
             gpuTimerSupported: !!timing.driver,
             gpuMs: timing.ms === null ? null : +timing.ms.toFixed(2),
+            cpuFrameMs: timing.cpuMs === null ? null : +timing.cpuMs.toFixed(2),
             gpuSamples: timing.samples.length,
-            gpuFresh,
+            gpuFresh: timing.ms !== null && now - timing.sampleAt < 8000,
             dpr: gl.getPixelRatio(),
             cap: +cap.toFixed(2),
             pressure: renderBudget.pressure,

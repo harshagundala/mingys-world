@@ -5,6 +5,13 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { Lantern, Produce } from "./Models";
 import { input } from "./controls";
 import { net } from "./network";
+import { expeditionHandMode } from "./expeditionHandling";
+import {
+  ExpeditionHandLamp,
+  ExpeditionPumpGrip,
+  ExpeditionAssemblyKey,
+  ExpeditionFocusWheel,
+} from "./ExpeditionTools";
 import { toolImpact, throwHandling, harvestHandling } from "./actionMotion";
 import { props, rand } from "./content";
 import type { Role } from "./content";
@@ -258,6 +265,11 @@ export function HeldObjectRig({ s, role }: { s: State; role: Role }) {
     reel = useRef<T.Group>(null),
     wheel = useRef<T.Group>(null),
     object = useRef<T.Group>(null),
+    expeditionLamp = useRef<T.Group>(null),
+    expeditionPumpRight = useRef<T.Group>(null),
+    expeditionPumpLeft = useRef<T.Group>(null),
+    expeditionKey = useRef<T.Group>(null),
+    expeditionFocus = useRef<T.Group>(null),
     sleeveRight = useRef<T.Mesh>(null),
     sleeveLeft = useRef<T.Mesh>(null);
   const lastTool = useRef({ kind: "", until: 0 }),
@@ -309,16 +321,42 @@ export function HeldObjectRig({ s, role }: { s: State; role: Role }) {
     if (challenge?.role === role)
       lastTool.current = { kind: challenge.kind, until: now + 900 };
     const flying = s.phase === 6 && s.kite?.role === role;
-    const tool = flying
-      ? "reel"
-      : now < lastTool.current.until
-        ? lastTool.current.kind
-        : "";
+    const age = (Date.now() + net.clockOffset - net.gestureAt) / 1000;
+    const activity = expeditionHandMode(
+      s,
+      role,
+      net.gesture,
+      age,
+      Date.now() + net.clockOffset,
+    );
+    const tool =
+      activity.mode ||
+      (flying
+        ? "reel"
+        : now < lastTool.current.until
+          ? lastTool.current.kind
+          : "");
     if (hammer.current) hammer.current.visible = tool === "bridge";
     if (knife.current) knife.current.visible = tool === "prep";
     if (spoon.current) spoon.current.visible = tool === "cook";
     if (reel.current) reel.current.visible = flying;
-    const age = (Date.now() + net.clockOffset - net.gestureAt) / 1000;
+    if (expeditionLamp.current)
+      expeditionLamp.current.visible = activity.mode === "lamp";
+    if (expeditionPumpRight.current)
+      expeditionPumpRight.current.visible = activity.mode === "pump";
+    if (expeditionPumpLeft.current)
+      expeditionPumpLeft.current.visible = activity.mode === "pump";
+    if (expeditionKey.current)
+      expeditionKey.current.visible = activity.mode === "assemble";
+    if (expeditionFocus.current) {
+      expeditionFocus.current.visible = activity.mode === "focus";
+      expeditionFocus.current.rotation.z = T.MathUtils.damp(
+        expeditionFocus.current.rotation.z,
+        activity.pressure * 0.85,
+        12,
+        dt,
+      );
+    }
     const heldMs = input.holding ? now - input.holding : 0;
     const throwing = throwHandling(
       net.gesture === "throw" ? age : -1,
@@ -330,16 +368,27 @@ export function HeldObjectRig({ s, role }: { s: State; role: Role }) {
     );
     const impact = net.gesture === "hit" ? toolImpact(age) : 0;
     const reach =
-      ["collect", "ingredient", "craft", "place", "serve", "moth"].includes(
-        net.gesture,
-      ) &&
+      [
+        "collect",
+        "ingredient",
+        "craft",
+        "place",
+        "serve",
+        "moth",
+        "exp-collect",
+        "exp-place",
+        "exp-keepsake",
+      ].includes(net.gesture) &&
       age >= 0 &&
       age < 0.7
         ? Math.sin((age / 0.7) * Math.PI)
         : 0;
     const motion = reduced ? 0.35 : 1;
     const wave =
-      net.gesture === "wave" && age >= 0 && age < 0.95
+      net.gesture === "wave" &&
+      age >= 0 &&
+      age < 0.95 &&
+      !["carry", "pump", "focus", "assemble"].includes(activity.mode)
         ? Math.sin((Math.min(1, age / 0.18) * Math.PI) / 2) *
           (1 - T.MathUtils.smoothstep(age, 0.68, 0.95))
         : 0;
@@ -359,109 +408,234 @@ export function HeldObjectRig({ s, role }: { s: State; role: Role }) {
       );
     }
     if (wrist.current) {
-      const base =
-        tool === "bridge"
-          ? -0.32 + impact * 1.08
-          : tool === "prep"
-            ? -0.35 + impact * 0.75
-            : tool === "cook"
-              ? 0.12 + Math.sin(clock.elapsedTime * 3) * 0.065 + impact * 0.16
-              : flying
-                ? -0.12
-                : reach * -0.2 + throwing.draw * 0.6 - throwing.follow * 0.78;
-      wrist.current.rotation.x = T.MathUtils.damp(
-        wrist.current.rotation.x,
-        base * motion,
-        tool === "bridge" || tool === "prep" ? 30 : 18,
-        dt,
-      );
-      wrist.current.rotation.y = T.MathUtils.damp(
-        wrist.current.rotation.y,
-        harvest.twist * motion + throwing.follow * 0.16 * motion,
-        14,
-        dt,
-      );
-      wrist.current.rotation.z = T.MathUtils.damp(
-        wrist.current.rotation.z,
-        (tool === "cook"
-          ? Math.sin(clock.elapsedTime * 3) * 0.075
-          : tool === "prep"
-            ? -0.27
-            : harvest.twist) * motion,
-        14,
-        dt,
-      );
-      wrist.current.position.y = T.MathUtils.damp(
-        wrist.current.position.y,
-        (!tool
-          ? s.hands[role]
-            ? 0.34
-            : held
-              ? 0.11
-              : 0.22
-          : flying
-            ? 0.04
-            : 0) +
+      if (activity.mode) {
+        const pump = activity.mode === "pump",
+          carry = activity.mode === "carry",
+          assembling = activity.mode === "assemble",
+          focusing = activity.mode === "focus";
+        const quarter =
+          assembling && net.gesture === "exp-assemble" && age >= 0 && age < 0.85
+            ? Math.sin((age / 0.85) * Math.PI)
+            : 0;
+        wrist.current.position.x = T.MathUtils.damp(
+          wrist.current.position.x,
+          carry ? -0.045 : assembling ? -0.07 : focusing ? -0.03 : 0,
+          14,
+          dt,
+        );
+        wrist.current.position.y = T.MathUtils.damp(
+          wrist.current.position.y,
+          pump
+            ? 0.1 + activity.pressure * 0.08
+            : carry
+              ? 0.14
+              : assembling
+                ? 0.06
+                : focusing
+                  ? 0.11
+                  : 0.09,
+          14,
+          dt,
+        );
+        wrist.current.position.z = T.MathUtils.damp(
+          wrist.current.position.z,
+          carry ? -0.19 : assembling ? -0.14 : focusing ? -0.1 : -0.06,
+          14,
+          dt,
+        );
+        wrist.current.rotation.x = T.MathUtils.damp(
+          wrist.current.rotation.x,
+          pump
+            ? -0.16 + activity.pressure * 0.14
+            : carry
+              ? -0.22
+              : assembling
+                ? -0.25
+                : -0.12,
+          14,
+          dt,
+        );
+        wrist.current.rotation.y = T.MathUtils.damp(
+          wrist.current.rotation.y,
+          carry ? -0.16 : 0,
+          14,
+          dt,
+        );
+        wrist.current.rotation.z = T.MathUtils.damp(
+          wrist.current.rotation.z,
+          assembling
+            ? -quarter * 0.72
+            : focusing
+              ? activity.pressure * 0.38
+              : pump
+                ? -0.05
+                : 0,
+          14,
+          dt,
+        );
+      } else {
+        const base =
+          tool === "bridge"
+            ? -0.32 + impact * 1.08
+            : tool === "prep"
+              ? -0.35 + impact * 0.75
+              : tool === "cook"
+                ? 0.12 + Math.sin(clock.elapsedTime * 3) * 0.065 + impact * 0.16
+                : flying
+                  ? -0.12
+                  : reach * -0.2 + throwing.draw * 0.6 - throwing.follow * 0.78;
+        wrist.current.rotation.x = T.MathUtils.damp(
+          wrist.current.rotation.x,
+          base * motion,
+          tool === "bridge" || tool === "prep" ? 30 : 18,
+          dt,
+        );
+        wrist.current.rotation.y = T.MathUtils.damp(
+          wrist.current.rotation.y,
+          harvest.twist * motion + throwing.follow * 0.16 * motion,
+          14,
+          dt,
+        );
+        wrist.current.rotation.z = T.MathUtils.damp(
+          wrist.current.rotation.z,
+          (tool === "cook"
+            ? Math.sin(clock.elapsedTime * 3) * 0.075
+            : tool === "prep"
+              ? -0.27
+              : harvest.twist) * motion,
+          14,
+          dt,
+        );
+        wrist.current.position.y = T.MathUtils.damp(
+          wrist.current.position.y,
+          (!tool
+            ? s.hands[role]
+              ? 0.34
+              : held
+                ? 0.11
+                : 0.22
+            : flying
+              ? 0.04
+              : 0) +
+            motion *
+              (impact *
+                (tool === "bridge" ? -0.09 : tool === "prep" ? -0.07 : 0.015) +
+                reach * 0.045 +
+                throwing.draw * 0.06 -
+                throwing.follow * 0.045),
+          22,
+          dt,
+        );
+        wrist.current.position.z = T.MathUtils.damp(
+          wrist.current.position.z,
           motion *
-            (impact *
-              (tool === "bridge" ? -0.09 : tool === "prep" ? -0.07 : 0.015) +
-              reach * 0.045 +
-              throwing.draw * 0.06 -
-              throwing.follow * 0.045),
-        22,
-        dt,
-      );
-      wrist.current.position.z = T.MathUtils.damp(
-        wrist.current.position.z,
-        motion *
-          (throwing.draw * 0.21 -
-            throwing.follow * 0.31 -
-            reach * 0.08 -
-            harvest.reach * 0.16),
-        18,
-        dt,
-      );
-      wrist.current.position.x = T.MathUtils.damp(
-        wrist.current.position.x,
-        motion * (-harvest.reach * 0.12 - throwing.follow * 0.1),
-        18,
-        dt,
-      );
+            (throwing.draw * 0.21 -
+              throwing.follow * 0.31 -
+              reach * 0.08 -
+              harvest.reach * 0.16),
+          18,
+          dt,
+        );
+        wrist.current.position.x = T.MathUtils.damp(
+          wrist.current.position.x,
+          motion * (-harvest.reach * 0.12 - throwing.follow * 0.1),
+          18,
+          dt,
+        );
+      }
     }
     if (support.current) {
-      support.current.visible = (!!held && !tool) || flying || wave > 0.01;
-      support.current.position.x = T.MathUtils.damp(
-        support.current.position.x,
-        wave > 0.01
-          ? -0.58
-          : flying
-            ? -0.105 * Math.cos(wheel.current?.rotation.z || 0) + 0.025
-            : held === "pumpkin"
-              ? -0.25
-              : -0.43,
-        12,
-        dt,
-      );
-      support.current.position.y = T.MathUtils.damp(
-        support.current.position.y,
-        wave > 0.01
-          ? 0.52 * wave
-          : flying
-            ? 0.265 - 0.105 * Math.sin(wheel.current?.rotation.z || 0)
-            : -0.08 + throwing.draw * 0.09 - throwing.follow * 0.05,
-        12,
-        dt,
-      );
-      support.current.position.z = T.MathUtils.damp(
-        support.current.position.z,
-        0.045 + throwing.draw * 0.16 - throwing.follow * 0.2,
-        16,
-        dt,
-      );
-      support.current.rotation.x =
-        (wave > 0.01 ? -0.4 : reach * -0.2 - throwing.follow * 0.4) * motion;
-      support.current.rotation.z =
-        wave > 0.01 ? Math.sin(age * 20) * 0.16 * motion : -0.2;
+      if (activity.mode) {
+        support.current.visible = activity.mode !== "lamp" || wave > 0.01;
+        support.current.position.x = T.MathUtils.damp(
+          support.current.position.x,
+          wave > 0.01
+            ? -0.58
+            : activity.mode === "carry"
+              ? -0.53
+              : activity.mode === "focus"
+                ? -0.31
+                : -0.39,
+          14,
+          dt,
+        );
+        support.current.position.y = T.MathUtils.damp(
+          support.current.position.y,
+          wave > 0.01
+            ? 0.52 * wave
+            : activity.mode === "pump"
+              ? 0.1 + activity.pressure * 0.08
+              : activity.mode === "carry"
+                ? 0.14
+                : 0.08,
+          14,
+          dt,
+        );
+        support.current.position.z = T.MathUtils.damp(
+          support.current.position.z,
+          activity.mode === "carry"
+            ? -0.19
+            : activity.mode === "assemble"
+              ? -0.14
+              : -0.06,
+          14,
+          dt,
+        );
+        support.current.rotation.x = T.MathUtils.damp(
+          support.current.rotation.x,
+          wave > 0.01
+            ? -0.4
+            : activity.mode === "pump"
+              ? -0.16 + activity.pressure * 0.14
+              : -0.22,
+          14,
+          dt,
+        );
+        support.current.rotation.z = T.MathUtils.damp(
+          support.current.rotation.z,
+          wave > 0.01
+            ? Math.sin(age * 20) * 0.16 * motion
+            : activity.mode === "carry"
+              ? 0.15
+              : 0.08,
+          14,
+          dt,
+        );
+      } else {
+        support.current.visible = (!!held && !tool) || flying || wave > 0.01;
+        support.current.position.x = T.MathUtils.damp(
+          support.current.position.x,
+          wave > 0.01
+            ? -0.58
+            : flying
+              ? -0.105 * Math.cos(wheel.current?.rotation.z || 0) + 0.025
+              : held === "pumpkin"
+                ? -0.25
+                : -0.43,
+          12,
+          dt,
+        );
+        support.current.position.y = T.MathUtils.damp(
+          support.current.position.y,
+          wave > 0.01
+            ? 0.52 * wave
+            : flying
+              ? 0.265 - 0.105 * Math.sin(wheel.current?.rotation.z || 0)
+              : -0.08 + throwing.draw * 0.09 - throwing.follow * 0.05,
+          12,
+          dt,
+        );
+        support.current.position.z = T.MathUtils.damp(
+          support.current.position.z,
+          0.045 + throwing.draw * 0.16 - throwing.follow * 0.2,
+          16,
+          dt,
+        );
+        support.current.rotation.x =
+          (wave > 0.01 ? -0.4 : reach * -0.2 - throwing.follow * 0.4) * motion;
+        support.current.rotation.z =
+          wave > 0.01 ? Math.sin(age * 20) * 0.16 * motion : -0.2;
+      }
     }
     // Sleeves stay connected below the camera while wrists and tools articulate.
     // Rotating an entire short forearm at the wrist makes it visibly float.
@@ -523,6 +697,27 @@ export function HeldObjectRig({ s, role }: { s: State; role: Role }) {
       ))}
       <group ref={wrist}>
         <Hand role={role} opening={() => open.current} />
+        <group
+          ref={expeditionLamp}
+          visible={false}
+          name="hollow-handlamp"
+          rotation={[-0.08, 0.3, 0]}
+        >
+          <ExpeditionHandLamp />
+        </group>
+        <group
+          ref={expeditionPumpRight}
+          visible={false}
+          name="hollow-pump-grip"
+        >
+          <ExpeditionPumpGrip />
+        </group>
+        <group ref={expeditionKey} visible={false} name="hollow-assembly-key">
+          <ExpeditionAssemblyKey />
+        </group>
+        <group ref={expeditionFocus} visible={false} name="hollow-focus-wheel">
+          <ExpeditionFocusWheel />
+        </group>
         <group ref={hammer} visible={false} name="held-hammer">
           <Assembly pieces={hammerWood} />
           <Assembly pieces={hammerMetal} metal />
@@ -567,6 +762,9 @@ export function HeldObjectRig({ s, role }: { s: State; role: Role }) {
         visible={false}
       >
         <Hand role={role} left opening={() => supportOpen.current} />
+        <group ref={expeditionPumpLeft} visible={false}>
+          <ExpeditionPumpGrip />
+        </group>
       </group>
     </group>
   );

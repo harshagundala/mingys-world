@@ -6,7 +6,7 @@ import type { State } from "../../server/autumn/rules";
 import { StaticGeometry } from "./StaticGeometry";
 import { rand, towers, lanternStands, props } from "./content";
 import { Box, Pole, Sign } from "./Models";
-import { pbrTextures } from "./materials";
+import { pbrTextures, instanceBoxUV } from "./materials";
 import { renderBudget } from "./RenderBudget";
 
 function useReducedMotion() {
@@ -165,7 +165,7 @@ export function ReflectiveWater({
 }
 
 function PathStones() {
-  const geometry = useMemo(() => new T.IcosahedronGeometry(1, 2), []);
+  const geometry = useMemo(() => new T.IcosahedronGeometry(1, 1), []);
   const meshes = useRef<T.InstancedMesh>(null);
   useEffect(() => {
     const m = meshes.current;
@@ -641,24 +641,51 @@ const houses = [
 ];
 function Architecture() {
   const tiles = useRef<T.InstancedMesh>(null),
-    details = useRef<T.InstancedMesh>(null);
+    details = useRef<T.InstancedMesh>(null),
+    foundation = useRef<T.InstancedMesh>(null),
+    hardware = useRef<T.InstancedMesh>(null);
   useEffect(() => {
-    if (!tiles.current || !details.current) return;
+    if (
+      !tiles.current ||
+      !details.current ||
+      !foundation.current ||
+      !hardware.current
+    )
+      return;
     const house = new T.Object3D(),
       roof = new T.Object3D(),
       o = new T.Object3D(),
       matrix = new T.Matrix4(),
       c = new T.Color();
-    let ti = 0,
-      di = 0;
-    const part = (p: number[], scale: number[], color: string) => {
+    let ti = 0;
+    const buckets = {
+      wood: details.current,
+      stone: foundation.current,
+      metal: hardware.current,
+    };
+    const counts = { wood: 0, stone: 0, metal: 0 };
+    const part = (
+      p: number[],
+      scale: number[],
+      color: string,
+      kind: keyof typeof buckets = "wood",
+    ) => {
       o.position.set(p[0], p[1], p[2]);
       o.scale.set(scale[0], scale[1], scale[2]);
       o.rotation.set(0, 0, 0);
       o.updateMatrix();
       matrix.multiplyMatrices(house.matrix, o.matrix);
-      details.current!.setMatrixAt(di, matrix);
-      details.current!.setColorAt(di++, c.set(color));
+      const index = counts[kind]++;
+      buckets[kind].setMatrixAt(index, matrix);
+      buckets[kind].setColorAt(
+        index,
+        c
+          .set(color)
+          .lerp(
+            new T.Color("#ffffff"),
+            kind === "wood" ? 0.27 : kind === "stone" ? 0.18 : 0,
+          ),
+      );
     };
     for (const h of houses) {
       house.position.set(h.p[0], h.p[1], h.p[2]);
@@ -687,7 +714,7 @@ function Architecture() {
             tiles.current.setColorAt(
               ti++,
               c.set(
-                ["#45595a", "#536260", "#526560", "#596966", "#66736d"][
+                ["#74817c", "#818a80", "#78857d", "#8b9184", "#92988a"][
                   Math.floor(rand(ti) * 5)
                 ],
               ),
@@ -704,9 +731,8 @@ function Architecture() {
               [0.32, 0.035, 0.035],
               "#83917b",
             );
-          part([x + side * 0.37, 1.85, 2.665], [0.15, 1.13, 0.025], "#d9c99f");
         }
-        part([x, 2.37, 2.67], [1, 0.14, 0.025], "#e0cfaa");
+
         part([x, 1.1, 3.01], [1.55, 0.2, 0.035], "#8e6447");
         for (let i = 0; i < 5; i++)
           part([x - 0.6 + i * 0.3, 1.1, 3.05], [0.025, 0.2, 0.025], "#b48c60");
@@ -718,20 +744,25 @@ function Architecture() {
           [-2.8 + i * 0.7, 0.15, 2.59],
           [0.62, 0.2, 0.09],
           i % 2 ? "#9a9480" : "#b3aa94",
+          "stone",
         );
       }
       // Door brass kick plate and trim remain clear of the gameplay lane.
-      part([0, 0.2, 2.62], [1.05, 0.18, 0.03], "#aa8f58");
+      part([0, 0.2, 2.62], [1.05, 0.18, 0.03], "#aa8f58", "metal");
       part([-0.66, 1.1, 2.57], [0.08, 2.2, 0.08], "#846245");
       part([0.66, 1.1, 2.57], [0.08, 2.2, 0.08], "#846245");
       part([0, 2.21, 2.57], [1.4, 0.13, 0.1], "#846245");
     }
     tiles.current.count = ti;
-    details.current.count = di;
     tiles.current.instanceMatrix.needsUpdate = true;
-    details.current.instanceMatrix.needsUpdate = true;
     tiles.current.computeBoundingSphere();
-    details.current.computeBoundingSphere();
+    for (const kind of ["wood", "stone", "metal"] as const) {
+      buckets[kind].count = counts[kind];
+      buckets[kind].instanceMatrix.needsUpdate = true;
+      if (buckets[kind].instanceColor)
+        buckets[kind].instanceColor!.needsUpdate = true;
+      buckets[kind].computeBoundingSphere();
+    }
   }, []);
   return (
     <>
@@ -742,7 +773,12 @@ function Architecture() {
         receiveShadow
       >
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial {...pbrTextures("stone")} roughness={0.96} />
+        <meshStandardMaterial
+          {...pbrTextures("stone")}
+          roughness={0.94}
+          normalScale={new T.Vector2(0.35, 0.35)}
+          onBeforeCompile={instanceBoxUV}
+        />
       </instancedMesh>
       <instancedMesh
         ref={details}
@@ -751,7 +787,35 @@ function Architecture() {
         receiveShadow
       >
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial {...pbrTextures("wood")} roughness={0.88} />
+        <meshStandardMaterial
+          {...pbrTextures("wood")}
+          roughness={0.9}
+          normalScale={new T.Vector2(0.4, 0.4)}
+          onBeforeCompile={instanceBoxUV}
+        />
+      </instancedMesh>
+      <instancedMesh
+        ref={foundation}
+        args={[undefined, undefined, 64]}
+        castShadow
+        receiveShadow
+      >
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial
+          {...pbrTextures("stone")}
+          roughness={0.97}
+          normalScale={new T.Vector2(0.4, 0.4)}
+          onBeforeCompile={instanceBoxUV}
+        />
+      </instancedMesh>
+      <instancedMesh
+        ref={hardware}
+        args={[undefined, undefined, 16]}
+        castShadow
+        receiveShadow
+      >
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial metalness={0.72} roughness={0.43} />
       </instancedMesh>
     </>
   );
@@ -773,7 +837,7 @@ function StationClock() {
         (-(now.getSeconds() + now.getMilliseconds() / 1000) * Math.PI) / 30;
   });
   return (
-    <group position={[0, 4.8, 42.48]} rotation={[0, Math.PI, 0]}>
+    <group position={[0, 6.23, 44.86]} rotation={[0, Math.PI, 0]}>
       <mesh rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[0.6, 0.6, 0.12, 40]} />
         <meshStandardMaterial

@@ -39,6 +39,9 @@ import { sound } from "./sound";
 import { input, setupInput } from "./controls";
 import {
   acts,
+  chapterNumber,
+  chapterTip,
+  chapterGoal,
   colors,
   names,
   recipes,
@@ -57,6 +60,8 @@ import type { Target } from "./World";
 import { MiniMap } from "./MiniMap";
 import { Journal } from "./Journal";
 import { finishDisplayCalibration } from "./displayCadence";
+import { ExpeditionHUD } from "./ExpeditionHUD";
+import { expeditionProgress } from "./expeditionPlay";
 import "./autumn.css";
 const World = lazy(() => import("./World"));
 const LanternPreview = lazy(() => import("./LanternPreview"));
@@ -180,6 +185,7 @@ function Preview({ large = false }: { large?: boolean }) {
   );
 }
 function Progress({ s, role }: { s: State; role: Role }) {
+  if (s.phase === 9) return <span>{expeditionProgress(s.expedition)}</span>;
   if (s.phase === 0) return <span>{s.ready.length}/2 lanterns lit</span>;
   if (s.phase === 1)
     return (
@@ -346,6 +352,28 @@ function Game() {
       if (!state || modalRef.current || chapterRef.current >= 0) return;
       const r = net.snapshot.role;
       if (down) {
+        if (state.phase === 9) {
+          const e = state.expedition;
+          if (e.operator?.role === r) {
+            net.action({
+              kind: "exp-use",
+              target: `${e.operator.route}-control`,
+            });
+          } else if (e.receiver?.role === r) {
+            const index = e.receiver.index;
+            net.action(
+              e.lightCharge[index] >= 1
+                ? { kind: "exp-collect", target: `light-${index}` }
+                : { kind: "exp-use", target: `light-focus-${index}` },
+            );
+          } else if (target?.action && target.action !== "exp-guide") {
+            net.action({ kind: target.action, target: target.id });
+            sound.tap();
+          } else if (e.carry.holders.includes(r)) {
+            net.action({ kind: "exp-grip" });
+          }
+          return;
+        }
         if (state.phase === 6 && state.kite?.role === r) {
           net.action({ kind: "kite-stop" });
           return;
@@ -514,6 +542,65 @@ function Game() {
     }, 350);
     return () => clearInterval(t);
   }, [river, s?.kite?.tower, s?.kite?.role]);
+  const mechanism =
+    s?.phase === 9
+      ? s.expedition.operator?.role === role
+        ? s.expedition.operator
+        : s.expedition.receiver?.role === role
+          ? s.expedition.receiver
+          : null
+      : null;
+  useEffect(() => {
+    input.mechanism = mechanism?.value || 0;
+  }, [
+    s?.phase,
+    mechanism?.role,
+    mechanism?.index,
+    s?.expedition.operator?.route,
+  ]);
+  useEffect(() => {
+    if (s?.phase !== 9) return;
+    let last = performance.now();
+    const timer = window.setInterval(() => {
+      const state = sRef.current;
+      const now = performance.now(),
+        dt = Math.min(0.25, (now - last) / 1000);
+      last = now;
+      if (
+        !state ||
+        state.phase !== 9 ||
+        input.blocked ||
+        net.snapshot.status !== "connected"
+      )
+        return;
+      const e = state.expedition,
+        r = net.snapshot.role;
+      const direction =
+        (input.keys.has("KeyD") || input.keys.has("ArrowRight") ? 1 : 0) -
+        (input.keys.has("KeyA") || input.keys.has("ArrowLeft") ? 1 : 0) +
+        input.touch.x;
+      if (
+        e.receiver?.role === r ||
+        (e.operator?.role === r && e.operator.route === "water")
+      )
+        input.mechanism = Math.max(
+          -1,
+          Math.min(1, input.mechanism + direction * dt * 0.72),
+        );
+      if (e.receiver?.role === r)
+        net.action({ kind: "exp-focus", value: input.mechanism });
+      if (
+        e.operator?.role === r ||
+        (!e.operator &&
+          r === 0 &&
+          e.carry.holders.length === 2 &&
+          !e.carry.delivered &&
+          net.snapshot.peer)
+      )
+        net.action({ kind: "exp-tick", value: input.mechanism });
+    }, 150);
+    return () => clearInterval(timer);
+  }, [s?.phase]);
   const enable = async (kind: "camera" | "mic") => {
     setBusy(true);
     try {
@@ -584,9 +671,7 @@ function Game() {
             <br />
             Last Light
           </h1>
-          <p className="ll-lobby-description">
-            An autumn adventure. Just the two of you.
-          </p>
+          <p className="ll-lobby-description">An autumn adventure.</p>
           <div className="ll-choose" aria-label="Choose your character">
             {([0, 1] as Role[]).map((r) => (
               <button
@@ -615,9 +700,6 @@ function Game() {
             </button>
           </div>
           {media.cameraOn && <Preview large />}
-          <span className="ll-duration">
-            2 players <i /> About an hour <i /> Progress saved
-          </span>
         </section>
         {toast && (
           <div className="ll-toast" role="status">
@@ -673,10 +755,11 @@ function Game() {
           <header className="ll-hud">
             <div className="ll-objective">
               <span className="ll-eyebrow">
-                {String(s.phase + 1).padStart(2, "0")} / {acts[s.phase].place}
+                {String(chapterNumber(s.phase)).padStart(2, "0")} /{" "}
+                {acts[s.phase].place}
               </span>
               <h1>{acts[s.phase].name}</h1>
-              <p>{acts[s.phase].goal}</p>
+              <p>{chapterGoal(s.phase, s.expedition)}</p>
               <div className="ll-progress">
                 <Progress s={s} role={role} />
               </div>
@@ -858,6 +941,9 @@ function Game() {
             </div>
           )}
           {!paused && !river && <TouchControls action={action} />}
+          {s.phase === 9 && !paused && (
+            <ExpeditionHUD e={s.expedition} role={role} />
+          )}
           <nav className="ll-tools" aria-label="Game controls">
             <button
               title={media.micOn ? "Mute microphone" : "Enable microphone"}
@@ -941,12 +1027,12 @@ function Game() {
           >
             <span className="ll-chapter-location">{acts[chapter].place}</span>
             <span className="ll-eyebrow">
-              CHAPTER {String(chapter + 1).padStart(2, "0")}
+              CHAPTER {String(chapterNumber(chapter)).padStart(2, "0")}
             </span>
             <h2>{acts[chapter].name}</h2>
             <p>{acts[chapter].line}</p>
             <div className="ll-story-rule" />
-            <p className="ll-story-tip">{acts[chapter].tip}</p>
+            <p className="ll-story-tip">{chapterTip(chapter, s.expedition)}</p>
             <button
               className="ll-primary"
               onClick={() => {

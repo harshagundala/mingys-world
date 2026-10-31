@@ -6,6 +6,12 @@ import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.j
 import { Lantern, Produce } from "./Models";
 import { net } from "./network";
 import { indexGeometry } from "./indexGeometry";
+import { expeditionHandMode } from "./expeditionHandling";
+import {
+  ExpeditionHandLamp,
+  ExpeditionAssemblyKey,
+  ExpeditionFocusWheel,
+} from "./ExpeditionTools";
 import type { Pose, Role } from "./content";
 
 type Part = {
@@ -188,6 +194,9 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
     eyes = useRef<T.Group>(null),
     tail = useRef<T.Group>(null);
   const carryRef = useRef<T.Group>(null);
+  const expeditionLamp = useRef<T.Group>(null),
+    expeditionKey = useRef<T.Group>(null),
+    expeditionFocus = useRef<T.Group>(null);
   const thighs = useRef<(T.Group | null)[]>([]),
     knees = useRef<(T.Group | null)[]>([]),
     arms = useRef<(T.Group | null)[]>([]),
@@ -562,6 +571,16 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
     previousVY.current = vy;
     bounce.current = T.MathUtils.damp(bounce.current, 0, 9, dt);
     const age = (Date.now() + net.clockOffset - (p.gestureAt || 0)) / 1000;
+    const activity = expeditionHandMode(
+      net.snapshot.state,
+      role,
+      p.gesture || "",
+      age,
+      Date.now() + net.clockOffset,
+    );
+    const busyHands = ["pump", "carry", "assemble", "focus"].includes(
+      activity.mode,
+    );
     const working = !!p.gesture && age >= 0 && age < 0.85;
     action.current = T.MathUtils.damp(
       action.current,
@@ -572,7 +591,7 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
     const act = action.current,
       throwing = p.gesture === "throw",
       hitting = p.gesture === "hit",
-      waving = p.gesture === "wave" && age >= 0 && age < 0.95,
+      waving = p.gesture === "wave" && age >= 0 && age < 0.95 && !busyHands,
       waveAmount = waving
         ? Math.sin((Math.min(1, age / 0.18) * Math.PI) / 2) *
           (1 - T.MathUtils.smoothstep(age, 0.68, 0.95))
@@ -592,7 +611,12 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
         torso.current.rotation.x,
         run * 0.09 +
           (hitting ? 0.14 * act : 0) +
-          (p.gesture === "collect" ? 0.13 * act : 0),
+          (p.gesture === "collect" ? 0.13 * act : 0) +
+          (activity.mode === "carry"
+            ? 0.035
+            : activity.mode === "pump"
+              ? 0.055
+              : 0),
         9,
         dt,
       );
@@ -650,6 +674,18 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
         );
       if (arm) {
         const carry = i === 1 && (!!held || !!lantern);
+        const activeArm =
+          activity.mode === "carry"
+            ? -0.85
+            : activity.mode === "pump"
+              ? -0.78 + activity.pressure * 0.1
+              : activity.mode === "lamp" && i === 1
+                ? -1.1 - p.pitch * 0.12
+                : activity.mode === "assemble"
+                  ? -0.62
+                  : activity.mode === "focus"
+                    ? -0.75
+                    : null;
         const wave = i === (held || lantern ? 0 : 1) ? waveAmount : 0;
         const poseAction =
           i === 1
@@ -663,11 +699,13 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
           arm.rotation.x,
           wave > 0.01
             ? -0.25 * wave
-            : carry
-              ? -0.32
-              : air
-                ? -0.28
-                : step * -0.39 * walk + poseAction,
+            : activeArm !== null
+              ? activeArm
+              : carry
+                ? -0.32
+                : air
+                  ? -0.28
+                  : step * -0.39 * walk + poseAction,
           14,
           dt,
         );
@@ -675,26 +713,71 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
           arm.rotation.z,
           wave > 0.01
             ? (i ? 1 : -1) * (2.15 + Math.sin(age * 20) * 0.12) * wave
-            : (i ? -0.06 : 0.06) + (air ? (i ? -0.16 : 0.16) : 0),
+            : activity.mode === "carry"
+              ? i
+                ? -0.12
+                : 0.12
+              : activity.mode === "pump"
+                ? i
+                  ? -0.08
+                  : 0.08
+                : (i ? -0.06 : 0.06) + (air ? (i ? -0.16 : 0.16) : 0),
           16,
           dt,
         );
       }
       if (elbow) {
         const wave = i === (held || lantern ? 0 : 1) ? waveAmount : 0;
-        elbow.rotation.z = wave * Math.sin(age * 20) * 0.22;
+        elbow.rotation.z =
+          wave * Math.sin(age * 20) * 0.22 +
+          (activity.mode === "assemble" && i === 1
+            ? -act * 0.45
+            : activity.mode === "focus" && i === 1
+              ? activity.pressure * 0.3
+              : 0);
         elbow.rotation.x = T.MathUtils.damp(
           elbow.rotation.x,
           (wave > 0.01
             ? -0.65 * wave
-            : i === 1 && (held || lantern)
-              ? -0.78
-              : -0.1 - run * 0.5) - (i === 1 ? 0.7 * act : 0),
+            : activity.mode === "carry"
+              ? -0.65
+              : activity.mode === "pump"
+                ? -0.68 + activity.pressure * 0.08
+                : activity.mode === "lamp" && i === 1
+                  ? -1.35
+                  : activity.mode === "assemble"
+                    ? -0.9
+                    : activity.mode === "focus"
+                      ? -0.85
+                      : i === 1 && (held || lantern)
+                        ? -0.78
+                        : -0.1 - run * 0.5) - (i === 1 ? 0.7 * act : 0),
           14,
           dt,
         );
       }
     }
+    const handRotation =
+      -(arms.current[1]?.rotation.x || 0) -
+      (elbows.current[1]?.rotation.x || 0) -
+      (torso.current?.rotation.x || 0);
+    if (expeditionLamp.current) {
+      expeditionLamp.current.visible = activity.mode === "lamp";
+      expeditionLamp.current.rotation.set(handRotation - p.pitch, Math.PI, 0);
+    }
+    if (expeditionKey.current) {
+      expeditionKey.current.visible = activity.mode === "assemble";
+      expeditionKey.current.rotation.set(handRotation, 0, -act * 0.6);
+    }
+    if (expeditionFocus.current) {
+      expeditionFocus.current.visible = activity.mode === "focus";
+      expeditionFocus.current.rotation.set(
+        handRotation,
+        0,
+        activity.pressure * 0.7,
+      );
+    }
+    if (carryRef.current) carryRef.current.visible = !activity.mode;
     if (carryRef.current && lantern)
       carryRef.current.rotation.x =
         -(arms.current[1]?.rotation.x || 0) -
@@ -759,6 +842,34 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
             >
               <Detail parts={limbParts.lowerArm} textile />
               <Detail parts={limbParts.hand} />
+              {i === 1 && (
+                <>
+                  <group
+                    ref={expeditionLamp}
+                    position={[0, -0.33, 0.075]}
+                    visible={false}
+                    scale={0.8}
+                  >
+                    <ExpeditionHandLamp />
+                  </group>
+                  <group
+                    ref={expeditionKey}
+                    position={[0, -0.33, 0.075]}
+                    visible={false}
+                    scale={0.8}
+                  >
+                    <ExpeditionAssemblyKey />
+                  </group>
+                  <group
+                    ref={expeditionFocus}
+                    position={[0, -0.33, 0.075]}
+                    visible={false}
+                    scale={0.8}
+                  >
+                    <ExpeditionFocusWheel />
+                  </group>
+                </>
+              )}
               {i === 1 && (
                 <group
                   ref={carryRef}

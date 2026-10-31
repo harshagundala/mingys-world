@@ -13,6 +13,12 @@ import {
   throwLanding,
 } from "../../src/autumn/content.ts";
 import type { Role, Pose } from "../../src/autumn/content.ts";
+import type { ExpeditionState } from "../../src/autumn/expeditionContent.ts";
+import {
+  initialExpedition,
+  normalizeExpedition,
+  reduceExpedition,
+} from "./expedition.ts";
 export type Lantern = { color: number; shape: number; wish: number };
 export type State = {
   schema: 1;
@@ -74,6 +80,8 @@ export type State = {
   moths: string[];
   lastAction: Record<string, number>;
   receipts: string[];
+  continuousReceipts: string[];
+  expedition: ExpeditionState;
 };
 export const initialState = (): State => ({
   schema: 1,
@@ -115,7 +123,30 @@ export const initialState = (): State => ({
   moths: [],
   lastAction: {},
   receipts: [],
+  continuousReceipts: [],
+  expedition: initialExpedition(),
 });
+const boundedReceipts = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? [
+        ...new Set(
+          value.filter(
+            (id): id is string => typeof id === "string" && id.length <= 80,
+          ),
+        ),
+      ].slice(-96)
+    : [];
+const continuousActions = new Set(["sail", "kite", "exp-tick", "exp-focus"]);
+
+/** Old saves retain their chapter; the new interlude never rewinds an existing evening. */
+export function normalizeState(state: State): State {
+  return {
+    ...state,
+    receipts: boundedReceipts(state.receipts),
+    continuousReceipts: boundedReceipts(state.continuousReceipts),
+    expedition: normalizeExpedition(state.expedition, state.phase),
+  };
+}
 export type Action = {
   id: string;
   at?: number;
@@ -150,7 +181,11 @@ export function reduce(
     action.id.length > 80
   )
     return fail(input, "That action could not be read. Try again.");
-  if (input.receipts.includes(action.id)) return { state: input };
+  if (
+    input.receipts.includes(action.id) ||
+    input.continuousReceipts?.includes(action.id)
+  )
+    return { state: input };
   if (action.phase !== input.phase)
     return fail(input, "A new chapter has begun.");
   const p = poses[role];
@@ -159,10 +194,10 @@ export function reduce(
     p.scene === "valley" && distance(p, target) < r;
   const peer = poses[1 - role];
   const paired = !!peer && now - peer.time < 6500;
-  const s = structuredClone(input);
+  const s = structuredClone(normalizeState(input));
   const bag = (s.bags[role] ||= []);
   const advance = () => {
-    s.phase++;
+    s.phase = s.phase === 5 ? 9 : s.phase === 9 ? 6 : s.phase + 1;
     s.challenge = null;
     s.bags = { 0: [], 1: [] };
     s.lastAction = {};
@@ -170,11 +205,31 @@ export function reduce(
   let message = "";
   const ack = () => {
     s.version++;
-    s.receipts.push(action.id);
-    s.receipts = s.receipts.slice(-96);
+    // High-frequency controls must not evict a door/grip/use receipt whose ACK
+    // was lost while the player disconnected. Both histories stay bounded.
+    const history = continuousActions.has(action.kind)
+      ? "continuousReceipts"
+      : "receipts";
+    s[history].push(action.id);
+    s[history] = s[history].slice(-96);
     return { state: s, ...(message ? { message } : {}) };
   };
   const reject = (m: string) => fail(input, m);
+  if (s.phase === 9) {
+    const result = reduceExpedition(
+      normalizeExpedition(s.expedition, s.phase),
+      role,
+      action,
+      poses,
+      now,
+    );
+    if (!result.changed)
+      return result.message ? reject(result.message) : { state: input };
+    s.expedition = result.expedition;
+    message = result.message || "";
+    if (result.completed) advance();
+    return ack();
+  }
   if (action.kind === "moth") {
     // Optional keepsakes never gate the story.
     const i = Number(action.target?.split("-")[1]);

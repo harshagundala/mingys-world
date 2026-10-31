@@ -15,8 +15,16 @@ import type { Role } from "./content";
 import type { State } from "../../server/autumn/rules";
 import { net } from "./network";
 import { input } from "./controls";
+import { expeditionTargets } from "./expeditionPlay";
+import {
+  carryWaypoints,
+  expeditionControls,
+  waterReceivers,
+  lightReceivers,
+} from "./expeditionContent";
 
 function destinations(s: State, role: Role) {
+  if (s.phase === 9) return expeditionTargets(s.expedition, role);
   if (s.phase === 0)
     return s.ready.includes(role)
       ? []
@@ -67,6 +75,7 @@ export function MiniMap({ s, role }: { s: State; role: Role }) {
   const id = useId().replaceAll(":", "");
   const points = useMemo(() => destinations(s, role), [s, role]);
   const river = s.phase === 3 && s.boarded.length === 2;
+  const hollow = s.phase === 9;
   useEffect(() => {
     let frame = 0,
       last = performance.now(),
@@ -113,7 +122,12 @@ export function MiniMap({ s, role }: { s: State; role: Role }) {
     return () => cancelAnimationFrame(frame);
   }, [points, role, river, s.boat.progress, s.boat.x]);
   return (
-    <div className="ll-map" aria-label={river ? "River chart" : "Compass map"}>
+    <div
+      className="ll-map"
+      aria-label={
+        hollow ? "Hollow trail map" : river ? "River chart" : "Compass map"
+      }
+    >
       <svg
         viewBox="-94 -94 188 188"
         role="img"
@@ -202,50 +216,112 @@ export function MiniMap({ s, role }: { s: State; role: Role }) {
                   />
                 );
               })}
+              {!hollow && (
+                <path
+                  d="M-90 -56Q-35 -48 0 -54T90 -52"
+                  stroke="#71a59f"
+                  strokeWidth="14"
+                  fill="none"
+                  opacity=".65"
+                />
+              )}
+              {!hollow && (
+                <path
+                  d="M-90 -56Q-35 -48 0 -54T90 -52"
+                  stroke="#cedac0"
+                  strokeWidth=".8"
+                  fill="none"
+                  strokeDasharray="1 6"
+                  opacity=".4"
+                />
+              )}
               <path
-                d="M-90 -56Q-35 -48 0 -54T90 -52"
-                stroke="#71a59f"
-                strokeWidth="14"
-                fill="none"
-                opacity=".65"
-              />
-              <path
-                d="M-90 -56Q-35 -48 0 -54T90 -52"
-                stroke="#cedac0"
-                strokeWidth=".8"
-                fill="none"
-                strokeDasharray="1 6"
-                opacity=".4"
-              />
-              <path
-                d="M0 -47V42M-24 -8L0 19L25 -20"
+                d={
+                  hollow
+                    ? "M0 40V15M0 15L-27 12L-50 12L-50 -8L-34 -22M0 15L27 12L50 11L49 -10L30 -24M0 15L-11 2L-5 -13L5 -22L0 -34V-50"
+                    : "M0 -47V42M-24 -8L0 19L25 -20"
+                }
                 fill="none"
                 stroke="#d1bd8b"
                 strokeOpacity=".45"
                 strokeWidth="3"
               />
               <path
-                d="M0 -47V42M-24 -8L0 19L25 -20"
+                d={
+                  hollow
+                    ? "M0 40V15M0 15L-27 12L-50 12L-50 -8L-34 -22M0 15L27 12L50 11L49 -10L30 -24M0 15L-11 2L-5 -13L5 -22L0 -34V-50"
+                    : "M0 -47V42M-24 -8L0 19L25 -20"
+                }
                 fill="none"
                 stroke="#e9d6ac"
                 strokeOpacity=".45"
                 strokeWidth=".6"
               />
-              {obstacles.map((p, i) => (
-                <rect
-                  key={i}
-                  x={(p.x - p.w) * 0.8}
-                  y={(p.z - p.d) * 0.8}
-                  width={p.w * 1.6}
-                  height={p.d * 1.6}
-                  rx=".5"
-                  fill="#b9a576"
-                  stroke="#e7d9ad"
-                  strokeWidth=".5"
-                  opacity=".66"
-                />
-              ))}
-              {s.bridge >= 6 && (
+              {!hollow &&
+                obstacles.map((p, i) => (
+                  <rect
+                    key={i}
+                    x={(p.x - p.w) * 0.8}
+                    y={(p.z - p.d) * 0.8}
+                    width={p.w * 1.6}
+                    height={p.d * 1.6}
+                    rx=".5"
+                    fill="#b9a576"
+                    stroke="#e7d9ad"
+                    strokeWidth=".5"
+                    opacity=".66"
+                  />
+                ))}
+              {hollow && (
+                <>
+                  <rect
+                    x="-9.6"
+                    y="-50.4"
+                    width="19.2"
+                    height="20.8"
+                    rx="2"
+                    fill="#91b6ad33"
+                    stroke="#b6d8ce88"
+                    strokeWidth=".8"
+                  />
+                  {(["water", "light"] as const).map((route) => (
+                    <g key={route}>
+                      <circle
+                        cx={expeditionControls[route].x * 0.8}
+                        cy={12}
+                        r={3}
+                        fill={route === "water" ? "#8dbab7" : "#efce8a"}
+                      />
+                      {(route === "water"
+                        ? waterReceivers
+                        : lightReceivers
+                      ).map((p, i) => (
+                        <circle
+                          key={i}
+                          cx={p.x * 0.8}
+                          cy={p.z * 0.8}
+                          r={2}
+                          fill={
+                            s.expedition[route].includes(i)
+                              ? "#aed5a7"
+                              : "#73877a"
+                          }
+                        />
+                      ))}
+                    </g>
+                  ))}
+                  {s.expedition.carry.holders.length > 0 &&
+                    !s.expedition.carry.delivered && (
+                      <circle
+                        cx={s.expedition.carry.x * 0.8}
+                        cy={s.expedition.carry.z * 0.8}
+                        r={3.5}
+                        fill="#d7f1df"
+                      />
+                    )}
+                </>
+              )}
+              {!hollow && s.bridge >= 6 && (
                 <path
                   d="M-2 -47V-61M2 -47V-61"
                   stroke="#e0bd7e"

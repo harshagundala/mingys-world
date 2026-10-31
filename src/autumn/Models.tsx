@@ -5,8 +5,9 @@ import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { WindMaterial } from "./Landscape";
 import { riverGroundHeight } from "./RiverTerrain";
-import { pbrTextures, instanceBarkUV } from "./materials";
+import { pbrTextures, instanceBarkUV, textureAsset } from "./materials";
 import { StaticGeometry } from "./StaticGeometry";
+import { LocalLightBlocker, LocalLightSource } from "./LocalLighting";
 import { indexGeometry } from "./indexGeometry";
 import { rand, colors } from "./content";
 import type { Role } from "./content";
@@ -20,7 +21,7 @@ export const mat = {
   gold: "#e8ac55",
 };
 export type BoxSurface =
-  "wood" | "plaster" | "stone" | "metal" | "roof" | "ground";
+  "wood" | "paintedWood" | "plaster" | "stone" | "metal" | "roof" | "ground";
 const boxGeometries = new Map<string, T.BufferGeometry>();
 function boxGeometry(size: number[]) {
   const key = size.join(",");
@@ -67,12 +68,26 @@ function surface(color: string, glow: number, explicit?: BoxSurface) {
       explicit ||
       (!metal && c.r > c.b * 1.15 && c.g < c.r * 0.95 ? "wood" : undefined);
     const texture =
-      kind === "roof" ? "stone" : kind === "metal" ? undefined : kind;
+      kind === "roof"
+        ? "stone"
+        : kind === "paintedWood"
+          ? "wood"
+          : kind === "metal"
+            ? undefined
+            : kind;
     const tint = c.clone();
     if (texture)
       tint.lerp(
         new T.Color("#ffffff"),
-        kind === "roof" ? 0.05 : kind === "plaster" ? 0.72 : 0.65,
+        kind === "roof"
+          ? 0.05
+          : kind === "paintedWood"
+            ? 0.16
+            : kind === "ground"
+              ? 0.1
+              : kind === "plaster"
+                ? 0.72
+                : 0.65,
       );
     material = new T.MeshStandardMaterial({
       color: tint,
@@ -81,11 +96,24 @@ function surface(color: string, glow: number, explicit?: BoxSurface) {
         kind === "plaster" ? 0.3 : 0.55,
         kind === "plaster" ? 0.3 : 0.55,
       ),
-      roughness: metal ? 0.34 : kind === "roof" ? 0.82 : 0.92,
-      metalness: metal ? 0.62 : 0,
+      roughness: metal ? 0.43 : kind === "roof" ? 0.88 : 0.92,
+      metalness: metal ? 0.72 : 0,
       emissive: color,
       emissiveIntensity: glow,
     });
+    if (kind === "paintedWood") {
+      material.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          "#include <map_fragment>",
+          `#ifdef USE_MAP
+            vec4 paintGrain=texture2D(map,vMapUv);
+            float grainLuminance=dot(paintGrain.rgb,vec3(.2126,.7152,.0722));
+            diffuseColor*=vec4(mix(paintGrain.rgb,vec3(grainLuminance),.9),paintGrain.a);
+          #endif`,
+        );
+      };
+      material.customProgramCacheKey = () => "weathered-painted-timber-v1";
+    }
     boxMaterials.set(key, material);
   }
   return material;
@@ -94,18 +122,25 @@ let paperTexture: T.CanvasTexture | null = null;
 export function paperMap() {
   if (paperTexture) return paperTexture;
   const c = document.createElement("canvas");
-  c.width = c.height = 128;
+  c.width = c.height = 256;
   const x = c.getContext("2d")!;
-  x.fillStyle = "#f8edce";
-  x.fillRect(0, 0, 128, 128);
-  for (let i = 0; i < 1600; i++) {
-    x.fillStyle = i % 2 ? "#b7a87c18" : "#ffffff22";
-    x.fillRect(rand(i) * 128, rand(i + 43) * 128, 1, 3);
+  x.fillStyle = "#ede3cc";
+  x.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 4800; i++) {
+    x.fillStyle = i % 2 ? "#8c7a5914" : "#ffffff24";
+    x.fillRect(
+      rand(i) * 256,
+      rand(i + 43) * 256,
+      0.5 + rand(i + 19),
+      1 + rand(i + 29) * 3,
+    );
   }
-  for (let i = 0; i < 8; i++) {
-    x.fillStyle = "#7c663c36";
-    x.fillRect(0, i * 16, 128, 1);
+  for (let i = 0; i < 7; i++) {
+    x.fillStyle = "#7c663c28";
+    x.fillRect(0, i * 42.66, 256, 1.1);
   }
+  x.fillStyle = "#a390681e";
+  x.fillRect(2, 0, 2, 256);
   paperTexture = new T.CanvasTexture(c);
   paperTexture.colorSpace = T.SRGBColorSpace;
   return paperTexture;
@@ -259,7 +294,7 @@ export function lanternFrameGeometry() {
     const pieces: T.BufferGeometry[] = [
       poleGeometry(0.26, 0.06).clone().translate(0, 0.12, 0),
       poleGeometry(0.23, 0.06).clone().translate(0, 0.67, 0),
-      new T.TorusGeometry(0.11, 0.018, 6, 16).translate(0, 0.8, 0),
+      new T.TorusGeometry(0.11, 0.018, 8, 24).translate(0, 0.8, 0),
     ];
     for (let i = 0; i < 4; i++)
       pieces.push(
@@ -271,32 +306,92 @@ export function lanternFrameGeometry() {
             Math.sin((i * Math.PI) / 2) * 0.24,
           ),
       );
+    for (const [y, radius] of [
+      [0.148, 0.229],
+      [0.642, 0.227],
+    ]) {
+      pieces.push(
+        new T.TorusGeometry(radius, 0.007, 4, 20)
+          .rotateX(Math.PI / 2)
+          .translate(0, y, 0),
+      );
+      for (let i = 0; i < 4; i++) {
+        const angle = (i * Math.PI) / 2;
+        pieces.push(
+          new T.SphereGeometry(0.014, 6, 4).translate(
+            Math.cos(angle) * 0.235,
+            y,
+            Math.sin(angle) * 0.235,
+          ),
+        );
+      }
+    }
+    pieces.forEach((piece, i) => {
+      const color = new T.Color(i < 7 ? "#6b6252" : "#b08b59");
+      const colors = new Float32Array(piece.attributes.position.count * 3);
+      for (let j = 0; j < colors.length; j += 3) color.toArray(colors, j);
+      piece.setAttribute("color", new T.BufferAttribute(colors, 3));
+    });
     // A single material means the entire iron frame is one draw call.
     lanternFrame = mergeGeometries(pieces, false)!;
     pieces.forEach((geometry) => geometry.dispose());
   }
   return lanternFrame;
 }
+let lanternMetal: T.MeshStandardMaterial | undefined;
 export function lanternFrameMaterial() {
-  return surface(mat.iron, 0, "metal");
+  if (!lanternMetal)
+    lanternMetal = new T.MeshStandardMaterial({
+      vertexColors: true,
+      metalness: 0.72,
+      roughness: 0.52,
+      normalMap: textureAsset("plaster", "normal"),
+      normalScale: new T.Vector2(0.035, 0.035),
+    });
+  return lanternMetal;
 }
 const lanternBodies = new Map<number, T.BufferGeometry>();
 const lanternPaperMaterials = new Map<string, T.MeshStandardMaterial>();
-function lanternPaperMaterial(color: string, lit: boolean) {
+export function lanternPaperMaterial(color: string, lit: boolean) {
   const key = `${color}:${lit}`;
   let material = lanternPaperMaterials.get(key);
   if (!material) {
     material = new T.MeshStandardMaterial({
-      color: lit ? color : "#b59c76",
-      emissive: color,
+      color: lit
+        ? new T.Color(color).lerp(new T.Color("#efe5cf"), 0.3)
+        : "#b59c76",
+      emissive: new T.Color(color).lerp(new T.Color("#ffc67c"), 0.45),
       map: paperMap(),
       emissiveMap: paperMap(),
-      emissiveIntensity: lit ? 0.65 : 0,
-      roughness: 0.8,
+      emissiveIntensity: lit ? 0.62 : 0,
+      bumpMap: paperMap(),
+      bumpScale: 0.006,
+      roughness: 0.94,
     });
+    finishLanternPaper(material);
     lanternPaperMaterials.set(key, material);
   }
   return material;
+}
+/** Warm light passes through the fibres unevenly without a costly transparent pass. */
+export function finishLanternPaper(material: T.MeshStandardMaterial) {
+  if (material.userData.fibreLantern) return;
+  material.userData.fibreLantern = true;
+  const previous = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <emissivemap_fragment>",
+      `#include <emissivemap_fragment>
+      float paperCore=exp(-pow((vMapUv.y-.43)*3.5,2.));
+      float paperRib=1.-.13*pow(.5+.5*cos(vMapUv.y*37.699),12.);
+      float paperSeam=mix(.82,1.,smoothstep(.01,.045,min(vMapUv.x,1.-vMapUv.x)));
+      totalEmissiveRadiance*=((.24+paperCore*.94)*paperRib*paperSeam);`,
+    );
+  };
+  material.customProgramCacheKey = () =>
+    "fibre-lantern-light-v1:" + previousKey;
 }
 export function lanternBodyGeometry(shape = 0) {
   const key = shape === 1 ? 1 : shape === 2 ? 2 : 0;
@@ -304,10 +399,19 @@ export function lanternBodyGeometry(shape = 0) {
   if (!geometry) {
     geometry =
       key === 1
-        ? new T.SphereGeometry(0.25, 12, 10)
+        ? new T.SphereGeometry(0.215, 20, 12)
         : key === 2
-          ? new T.CylinderGeometry(0.2, 0.28, 0.46, 6)
-          : new T.CylinderGeometry(0.23, 0.23, 0.46, 12);
+          ? new T.CylinderGeometry(0.19, 0.222, 0.46, 6, 6)
+          : new T.CylinderGeometry(0.225, 0.225, 0.46, 16, 6);
+    if (key !== 1) {
+      const p = geometry.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const rib =
+          1 + Math.cos((p.getY(i) / 0.46 + 0.5) * Math.PI * 6) * 0.012;
+        p.setXYZ(i, p.getX(i) * rib, p.getY(i), p.getZ(i) * rib);
+      }
+      geometry.computeVertexNormals();
+    }
     lanternBodies.set(key, geometry);
   }
   return geometry;
@@ -325,8 +429,18 @@ export function Lantern({
   shape?: number;
   scale?: number;
 }) {
+  const lightColor = useMemo(
+    () => new T.Color(color).lerp(new T.Color("#ffc67c"), 0.45),
+    [color],
+  );
   return (
     <group position={position as any} scale={scale}>
+      <LocalLightSource
+        position={[0, 0.4, 0]}
+        color={lightColor}
+        radius={0.12}
+        enabled={lit}
+      />
       <mesh
         position={[0, 0.4, 0]}
         geometry={lanternBodyGeometry(shape)}
@@ -403,6 +517,117 @@ export function Produce({
     </group>
   );
 }
+let cottageGlass: T.MeshStandardMaterial | undefined;
+const cottagePane = new T.PlaneGeometry(1, 1.15);
+function cottageWindowMaterial() {
+  if (!cottageGlass) {
+    cottageGlass = new T.MeshStandardMaterial({
+      color: "#253b3a",
+      metalness: 0.2,
+      roughness: 0.18,
+      emissive: "#dfad6b",
+      emissiveIntensity: 0.15,
+      normalMap: textureAsset("plaster", "normal"),
+      normalScale: new T.Vector2(0.035, 0.035),
+    });
+    cottageGlass.onBeforeCompile = (shader) => {
+      shader.vertexShader = "varying vec2 cottageUv;\n" + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <begin_vertex>",
+        "#include <begin_vertex>\ncottageUv=uv;",
+      );
+      shader.fragmentShader =
+        "varying vec2 cottageUv;\n" + shader.fragmentShader;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <emissivemap_fragment>",
+        `#include <emissivemap_fragment>
+        vec2 pane=fract(cottageUv*2.);
+        float frameShade=smoothstep(0.,.2,min(pane.x,1.-pane.x))*smoothstep(0.,.16,min(pane.y,1.-pane.y));
+        float lamplight=exp(-length((cottageUv-vec2(.62,.33))*vec2(2.4,1.7))*1.3);
+        float curtainEdge=1.-smoothstep(.11,.2,min(cottageUv.x,1.-cottageUv.x));
+        float folds=.58+.16*cos(cottageUv.x*130.);
+        totalEmissiveRadiance*=mix((.2+lamplight*1.45)*(.48+frameShade*.52),folds,curtainEdge*.86);
+        diffuseColor.rgb*=mix(1.,.56,curtainEdge);`,
+      );
+    };
+    cottageGlass.customProgramCacheKey = () => "cottage-lamplit-panes-v1";
+  }
+  return cottageGlass;
+}
+const cottageGables = (() => {
+  const geometry = new T.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new T.Float32BufferAttribute(
+      [
+        -2.75, 3.15, 2.403, 2.75, 3.15, 2.403, 0, 4.73, 2.403, 2.75, 3.15,
+        -2.403, -2.75, 3.15, -2.403, 0, 4.73, -2.403,
+      ],
+      3,
+    ),
+  );
+  geometry.setAttribute(
+    "uv",
+    new T.Float32BufferAttribute(
+      [0, 0, 3.47, 0, 1.735, 0.975, 3.47, 0, 0, 0, 1.735, 0.975],
+      2,
+    ),
+  );
+  geometry.setIndex([0, 1, 2, 3, 4, 5]);
+  geometry.computeVertexNormals();
+  return geometry;
+})();
+let doorPanels: T.BufferGeometry | undefined;
+function doorPanelGeometry() {
+  if (!doorPanels) {
+    const parts: T.BufferGeometry[] = [];
+    for (const y of [0.63, 1.55]) {
+      for (const x of [-0.45, 0.45])
+        parts.push(
+          new T.BoxGeometry(0.045, 0.72, 0.035).translate(x, y, 2.617),
+        );
+      for (const dy of [-0.36, 0.36])
+        parts.push(
+          new T.BoxGeometry(0.945, 0.045, 0.035).translate(0, y + dy, 2.617),
+        );
+    }
+    doorPanels = mergeGeometries(parts, false)!;
+    parts.forEach((part) => part.dispose());
+  }
+  return doorPanels;
+}
+let planterLeaves: T.BufferGeometry | undefined;
+let planterLeafMaterial: T.MeshStandardMaterial | undefined;
+function cottagePlanter() {
+  if (!planterLeaves) {
+    const parts: T.BufferGeometry[] = [];
+    for (let i = 0; i < 10; i++) {
+      const size = 0.28 + rand(i + 393) * 0.08;
+      const leaf = new T.PlaneGeometry(size, size * 1.25, 1, 2);
+      const p = leaf.attributes.position;
+      for (let j = 0; j < p.count; j++)
+        p.setZ(j, Math.pow(p.getY(j) / size + 0.6, 2) * 0.045);
+      leaf.computeVertexNormals();
+      leaf
+        .translate(0, size * 0.55, 0)
+        .rotateX(-0.15 + rand(i + 227) * 0.3)
+        .rotateY(i * 2.399);
+      leaf.translate(-0.55 + (i % 5) * 0.275, -0.02, i < 5 ? -0.075 : 0.075);
+      parts.push(leaf);
+    }
+    planterLeaves = mergeGeometries(parts, false)!;
+    parts.forEach((part) => part.dispose());
+    planterLeafMaterial = new T.MeshStandardMaterial({
+      map: autumnFoliageTexture(),
+      color: "#e4decb",
+      side: T.DoubleSide,
+      alphaTest: 0.45,
+      roughness: 0.97,
+    });
+  }
+  return { geometry: planterLeaves, material: planterLeafMaterial! };
+}
+
 export function Cottage({
   position = [0, 0, 0],
   rotation = 0,
@@ -416,6 +641,7 @@ export function Cottage({
 }) {
   return (
     <group position={position as any} rotation={[0, rotation, 0]} scale={scale}>
+      <LocalLightBlocker position={[0, 1.6, 0]} size={[6, 3.2, 4.8]} />
       <StaticGeometry revision={color}>
         <Box
           p={[0, 1.6, 0]}
@@ -423,6 +649,14 @@ export function Cottage({
           color={color}
           material="plaster"
         />
+        <mesh
+          geometry={cottageGables}
+          material={surface(color, 0, "plaster")}
+          castShadow
+          receiveShadow
+          dispose={null}
+        />
+        <Box p={[0, 3.92, 2.44]} s={[0.14, 1.44, 0.16]} />
         <Box
           p={[0, 0.2, 0]}
           s={[6.3, 0.4, 5.1]}
@@ -455,16 +689,42 @@ export function Cottage({
         ))}
         {/* The center timber ends above the doorway; coplanar door/post faces shimmer. */}
         <Box p={[0, 2.75, 2.45]} s={[0.18, 0.9, 0.2]} />
-        <Box p={[0, 1.05, 2.51]} s={[1.18, 2.1, 0.16]} color="#385b58" />
-        <Orb p={[0.38, 1.07, 2.64]} s={[0.045, 0.045, 0.045]} color="#dca84f" />
+        <Box
+          p={[0, 1.05, 2.51]}
+          s={[1.18, 2.1, 0.16]}
+          color="#52756b"
+          material="paintedWood"
+        />
+        <mesh
+          geometry={doorPanelGeometry()}
+          material={surface("#648174", 0, "paintedWood")}
+          castShadow
+          receiveShadow
+          dispose={null}
+        />
+        <Box
+          p={[0.38, 1.07, 2.64]}
+          s={[0.07, 0.18, 0.018]}
+          color={mat.gold}
+          material="metal"
+        />
+        <mesh
+          position={[0.38, 1.07, 2.68]}
+          scale={[0.045, 0.045, 0.04]}
+          geometry={orbGeometry}
+          material={surface(mat.gold, 0, "metal")}
+          castShadow
+          dispose={null}
+        />
         {[-1.8, 1.8].map((x) => (
           <group key={x}>
             <Box p={[x, 1.85, 2.5]} s={[1.22, 1.36, 0.12]} color="#4e483b" />
-            <Box
-              p={[x, 1.85, 2.58]}
-              s={[1, 1.15, 0.06]}
-              color="#ffc879"
-              glow={1.2}
+            <mesh
+              position={[x, 1.85, 2.615]}
+              geometry={cottagePane}
+              material={cottageWindowMaterial()}
+              receiveShadow
+              dispose={null}
             />
             <Box p={[x, 1.85, 2.64]} s={[0.06, 1.25, 0.05]} />
             {[-1, 1].map((side) => (
@@ -475,7 +735,19 @@ export function Cottage({
               />
             ))}
             <Box p={[x, 1.1, 2.7]} s={[1.5, 0.18, 0.55]} color="#79523b" />
-            <Orb p={[x, 1.28, 2.8]} s={[0.6, 0.15, 0.17]} color="#7b8c51" />
+            <Box
+              p={[x, 1.207, 2.8]}
+              s={[1.32, 0.028, 0.36]}
+              color="#63583d"
+              material="ground"
+            />
+            <mesh
+              position={[x, 1.23, 2.8]}
+              {...cottagePlanter()}
+              castShadow
+              receiveShadow
+              dispose={null}
+            />
           </group>
         ))}
         <Box

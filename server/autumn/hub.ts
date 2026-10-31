@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import type Redis from "ioredis";
 import { redis } from "../store.ts";
 import { chooseSeat } from "../seats.ts";
-import { initialState, reduce } from "./rules.ts";
+import { initialState, normalizeState, reduce } from "./rules.ts";
 import type { State, Action } from "./rules.ts";
 import { spawn } from "../../src/autumn/content.ts";
+import { hollowSpawn } from "../../src/autumn/expeditionContent.ts";
 import type { Pose, Role } from "../../src/autumn/content.ts";
 const instance = randomUUID();
 const namespace = process.env.AUTUMN_WORLD_KEY || "mingy:autumn:v1";
@@ -91,7 +92,9 @@ async function mutate(
   if (!locked) throw new Error("One moment. Your action will retry.");
   try {
     const raw = await redis.get(key(room));
-    const result = await fn(raw ? JSON.parse(raw) : initialState());
+    const result = await fn(
+      raw ? normalizeState(JSON.parse(raw)) : initialState(),
+    );
     await redis.set(key(room), JSON.stringify(result.state));
     return result;
   } finally {
@@ -156,7 +159,7 @@ export function attachAutumn(ws: any) {
             if (raw)
               send(ws, {
                 type: "sync",
-                state: JSON.parse(raw),
+                state: normalizeState(JSON.parse(raw)),
                 poses,
                 at: Date.now(),
               });
@@ -200,6 +203,8 @@ export function attachAutumn(ws: any) {
         pose = spawn(role);
         const saved = await redis.get(`${key(room)}:last:${role}`);
         if (saved) pose = JSON.parse(saved);
+        if (s.phase === 9 && pose.scene !== "hollow") pose = hollowSpawn(role);
+        else if (s.phase !== 9 && pose.scene === "hollow") pose = spawn(role);
         await redis.set(`${key(room)}:seat:${role}`, ws.connectionId, "EX", 20);
         await save();
         if (seats[role]) {
@@ -234,7 +239,7 @@ export function attachAutumn(ws: any) {
       ]);
       send(ws, {
         type: "welcome",
-        state: raw ? JSON.parse(raw) : result.state,
+        state: raw ? normalizeState(JSON.parse(raw)) : result.state,
         room,
         role,
         pose,
@@ -266,7 +271,7 @@ export function attachAutumn(ws: any) {
         Math.abs(p.z) > 100 ||
         p.y < -2 ||
         p.y > 12 ||
-        !["valley", "river"].includes(p.scene)
+        !["valley", "river", "hollow"].includes(p.scene)
       )
         return;
       lastMove = t;

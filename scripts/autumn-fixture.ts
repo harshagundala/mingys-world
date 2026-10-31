@@ -8,8 +8,10 @@ if (
   !process.env.AUTUMN_WORLD_KEY?.includes("qa-") ||
   !Number.isInteger(phase) ||
   phase < 0 ||
-  phase > 8 ||
-  (mode !== undefined && !(mode === "--landing" && phase === 3))
+  phase > 9 ||
+  (mode !== undefined &&
+    !(mode === "--landing" && phase === 3) &&
+    !(phase === 9 && ["--carry", "--assembly"].includes(mode)))
 )
   throw new Error("Use an explicit QA room and namespace.");
 const key = `${process.env.AUTUMN_WORLD_KEY}:${room}`;
@@ -46,8 +48,27 @@ if (phase === 3) {
   s.boarded = mode === "--landing" ? [] : [0, 1];
   s.boat.at = Date.now();
 }
-if (phase >= 7) {
+if (phase === 7 || phase === 8) {
   s.towers = [0, 1, 2, 3, 4, 5];
+}
+if (phase === 9 && (mode === "--carry" || mode === "--assembly")) {
+  s.expedition.water = [0, 1, 2];
+  s.expedition.light = [0, 1, 2];
+  s.expedition.waterCharge = [1, 1, 1];
+  s.expedition.lightCharge = [1, 1, 1];
+  s.expedition.firstRoute = "water";
+  s.expedition.routeOrder = ["water", "light"];
+  s.expedition.at = Date.now();
+  if (mode === "--assembly") {
+    s.expedition.carry = {
+      holders: [],
+      checkpoint: 4,
+      x: 0,
+      z: -46,
+      delivered: true,
+      at: Date.now(),
+    };
+  }
 }
 if (phase === 8) {
   s.completedAt = Date.now();

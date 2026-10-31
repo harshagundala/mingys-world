@@ -1,3 +1,4 @@
+import type { Expedition } from "./expeditionContent";
 // Shared spatial contract. Narrative and progression are intentionally not in the launcher.
 export type Role = 0 | 1;
 export type Vec = [number, number, number];
@@ -11,6 +12,13 @@ export type Prop = {
 };
 export const colors = ["#e7aa52", "#79c7c3"];
 export const names = ["Harsha", "Mingy"];
+/** Saved phase IDs stay stable; this sequence is the order players experience them. */
+export const chapterOrder = [0, 1, 2, 3, 4, 5, 9, 6, 7, 8] as const;
+export function chapterNumber(phase: number) {
+  return Math.max(1, chapterOrder.findIndex((id) => id === phase) + 1);
+}
+/** First-play pacing estimate, including the optional-order middle act. */
+export const adventureMinutes = "75–85";
 export const acts = [
   {
     name: "A little before nightfall",
@@ -52,7 +60,7 @@ export const acts = [
     name: "A table for everyone",
     place: "The midnight kitchen",
     goal: "Cook eight plates together and deliver them to the waiting tables.",
-    line: "Paper, wicks, wax: everything for a sky full of lanterns. But the keeper’s note has one rule: “Feed the people who will watch them.” Your harvest is waiting at the kitchen.",
+    line: "Paper, wicks, wax: the makings of a sky full of lanterns. But the keeper’s note has one rule: “Feed the people who will watch them.” Your harvest is waiting at the kitchen.",
     note: "Recipe-book inscription: “One pair of hands starts a dish. Another finishes it. That’s how you know it was made for company.”",
     tip: "Pick up the requested ingredient at a pantry. Prep it at the cutting board, then your partner finishes it at the stove. Press E again when the marker crosses gold. Serve the plate at the glowing table. Nothing burns while you reconnect.",
     minutes: "9–10",
@@ -61,7 +69,7 @@ export const acts = [
     name: "A gloriously crooked fair",
     place: "The pumpkin green",
     goal: "Play four rounds of pumpkin toss. Five throws each per round.",
-    line: "Eight warm plates, and the fair is back. The villagers insist you settle one extremely important matter before the lights go up: which Mingy throws the least ridiculous pumpkin?",
+    line: "Eight warm plates, and the fair is back. The villagers insist you settle one extremely important matter before the lights go up: which Mingy throws the least ridiculous pumpkin? Beyond the green, the old glasshouse waits in the dark.",
     note: "Official fair regulations: “No bruised feelings. No borrowing a champion’s pumpkin. Ties count as an excellent excuse to come back.”",
     tip: "Stand at your throwing line. Look up a little, hold E to charge, aim the dotted arc at the glowing ring, then release. A closer landing scores more. Five throws each, then the ring moves. No one has to win to carry on.",
     minutes: "6–8",
@@ -70,7 +78,7 @@ export const acts = [
     name: "Borrowing a little sky",
     place: "Windward Hill",
     goal: "Wake the six wind towers. One holds the ground switch while the other flies the kite.",
-    line: "The fair is ready. Above it, the storm still holds the night shut. Six old wind towers can open a safe passage for your lanterns—but every kite needs someone holding steady below.",
+    line: "The storm is loosening its grip. Six old wind towers can turn a break in the weather into a safe passage for your lanterns. One of you reaches for the sky; the other keeps steady below.",
     note: "Keeper’s field note: “Every person who reaches for the sky needs someone on the ground. Trade places. Remember how both jobs feel.”",
     tip: "Stand on a tower’s amber ground switch. Your partner uses its teal reel, then steers the kite with A/D through the moving gold wind band. Swap roles at the next tower. Progress never runs backward.",
     minutes: "7–9",
@@ -93,7 +101,61 @@ export const acts = [
     tip: "Explore, linger by the fire, or watch the lanterns. Your evening is saved.",
     minutes: "",
   },
+  {
+    name: "The house that held the storm",
+    place: "The hollow & the glasshouse",
+    goal: "Wake the Waterworks and Lantern Trail. Find what is holding the weather.",
+    line: "Beyond the fair, the old glasshouse is breathing cold air into the valley. Something inside is holding the storm in place. Two routes disappear into the hollow: one follows water, the other follows light.",
+    note: "A margin in the keeper’s map: “Water gives it a pulse. Light shows it the way. The glassheart remembers how the two belong together.” Either path is yours to begin.",
+    tip: "Choose either route; E takes a station. Waterworks: one pumps with A/D while the other calls corrections from the target gauge. Lantern Trail: one aims the beam; the other presses E at the receiver and uses A/D to focus it. E recovers a charged receiver. Swap jobs at each station.",
+    minutes: "15–20",
+  },
 ];
+/** A concise HUD objective for the current beat, with stable legacy chapter text. */
+export function chapterGoal(phase: number, expedition?: Expedition) {
+  if (phase !== 9 || !expedition) return acts[phase].goal;
+  const e = expedition;
+  if (e.assembly >= 3)
+    return "Return to the valley together, or stay a little longer.";
+  if (e.carry.delivered)
+    return "Complete three paired assembly beats in the glasshouse.";
+  if (e.water.length >= 3 && e.light.length >= 3) {
+    if (e.carry.checkpoint >= 4) return "Set the glassheart into its cradle.";
+    if (e.carry.holders.length === 2)
+      return "Carry the glassheart to the glasshouse together.";
+    return "Meet at the glassheart. Take one handle each.";
+  }
+  if (e.water.length >= 3) return "Finish the Lantern Trail together.";
+  if (e.light.length >= 3) return "Finish the Waterworks together.";
+  return acts[phase].goal;
+}
+
+/** Instructions follow the current saved beat, never a later chapter. */
+export function chapterTip(phase: number, expedition?: Expedition) {
+  if (phase !== 9 || !expedition) return acts[phase].tip;
+  const e = expedition;
+  if (e.assembly >= 3)
+    return "The glasshouse is awake. Stay to explore, or both meet at the return marker and press E to go back to the valley.";
+  if (e.carry.delivered)
+    return "Stand on the two marked assembly pads. Count down and press E within three seconds of each other. Repeat at three successive pairs to open the roof. A missed beat keeps every finished part.";
+  if (e.water.length >= 3 && e.light.length >= 3) {
+    if (e.carry.checkpoint >= 4)
+      return "The glassheart is home. Keep both handles held, approach the central cradle, and press E to set it in place.";
+    if (e.carry.holders.length === 2)
+      return "Walk the glassheart through the lit waypoints together. Keep close and match your partner’s pace. Stop whenever you need to regroup; each waypoint saves your crossing.";
+    return "Both paths are awake. Meet at the glassheart and press E on your handles. Then carry it through the marked waypoints together; neither of you can move it alone.";
+  }
+  if (e.operator?.route === "water")
+    return "The pump operator uses A/D to adjust pressure. Only your partner’s gauge shows the target, so they call out corrections. When it is charged, your partner presses E at the receiver. Swap jobs at the next station.";
+  if (e.operator?.route === "light")
+    return "One player aims at the moving receiver with the mouse or two-finger drag. The other presses E at the receiver, then uses A/D to focus the ring. Keep both aligned until charged; the player at the receiver presses E again to recover it.";
+  if (e.water.length >= 3)
+    return "The Waterworks is restored. On the Lantern Trail, E takes the lantern or focus controls. One player aims the beam; the other focuses with A/D. When both align and the charge fills, the player at the receiver presses E again.";
+  if (e.light.length >= 3)
+    return "The Lantern Trail is restored. Follow the Waterworks: E takes a pump. Your partner reads the target gauge and calls corrections while you adjust with A/D. Your partner presses E at the receiver when it is charged.";
+  return acts[phase].tip;
+}
+
 export const stations: Record<
   string,
   { x: number; z: number; label: string; phase: number; role?: Role }
@@ -227,7 +289,7 @@ export type Pose = {
   control?: number;
   gesture?: string;
   gestureAt?: number;
-  scene: "valley" | "river";
+  scene: "valley" | "river" | "hollow";
 };
 export const spawn = (role: Role): Pose => ({
   x: role ? 1.6 : -1.6,

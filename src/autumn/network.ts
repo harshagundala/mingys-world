@@ -287,11 +287,11 @@ class Network extends EventTarget {
     }
     if (this.pending.size > 16) return;
     if (
-      ["sail", "kite"].includes(data.kind) &&
+      ["sail", "kite", "exp-tick", "exp-focus"].includes(data.kind) &&
       [...this.pending.values()].some((p) => p.action.kind === data.kind)
     )
       return;
-    if (!["sail", "kite"].includes(data.kind)) {
+    if (!["sail", "kite", "exp-tick", "exp-focus"].includes(data.kind)) {
       this.gesture = data.kind;
       this.gestureAt = Date.now() + this.clockOffset;
     }

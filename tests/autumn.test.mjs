@@ -1,6 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { initialState, reduce } from "../server/autumn/rules.ts";
+import {
+  initialState,
+  normalizeState,
+  reduce,
+} from "../server/autumn/rules.ts";
+import {
+  assemblyPads,
+  carryWaypoints,
+  expeditionControls,
+  expeditionOperator,
+  focusTarget,
+  heartCradle,
+  heartStart,
+  lightReceiverPosition,
+  lightReceivers,
+  returnPoint,
+  waterReceivers,
+  waterTarget,
+} from "../src/autumn/expeditionContent.ts";
 import {
   stations,
   props,
@@ -48,6 +66,49 @@ test("autumn requires two nearby distinct players and deduplicates retried actio
   at(c, 1, stations["welcome-1"]);
   act(c, 1, "interact", { target: "welcome-1" });
   assert.equal(c.state.phase, 1);
+});
+test("lost discrete ACK remains idempotent after sustained controls and a serialized reconnect", () => {
+  const c = ctx(9);
+  for (const role of [0, 1]) c.poses[role].scene = "hollow";
+  at(c, 0, expeditionControls.water);
+  at(c, 1, waterReceivers[0]);
+  const lostAck = {
+    id: id(),
+    phase: 9,
+    kind: "exp-use",
+    target: "water-control",
+  };
+  c.state = reduce(c.state, 0, lostAck, c.poses, c.now).state;
+  for (let i = 0; i < 240; i++) {
+    c.now += 150;
+    c.poses[1].time = c.now;
+    act(c, 0, "exp-tick", { value: waterTarget(0, c.now) });
+  }
+  assert.equal(c.state.continuousReceipts.length, 96);
+  assert.ok(c.state.receipts.includes(lostAck.id));
+  c.state = normalizeState(JSON.parse(JSON.stringify(c.state)));
+  const restored = c.state;
+  c.now += 30000;
+  at(c, 0, expeditionControls.water);
+  at(c, 1, waterReceivers[0]);
+  c.state = reduce(c.state, 0, lostAck, c.poses, c.now).state;
+  assert.equal(
+    c.state,
+    restored,
+    "replaying the original claim must not release the instrument",
+  );
+  assert.equal(c.state.expedition.operator?.role, 0);
+  const legacy = JSON.parse(JSON.stringify(c.state));
+  delete legacy.continuousReceipts;
+  assert.deepEqual(normalizeState(legacy).continuousReceipts, []);
+  const oversized = Array.from({ length: 300 }, (_, i) => `receipt-${i}`);
+  const bounded = normalizeState({
+    ...c.state,
+    receipts: oversized,
+    continuousReceipts: oversized,
+  });
+  assert.equal(bounded.receipts.length, 96);
+  assert.equal(bounded.continuousReceipts.length, 96);
 });
 test("harvest capacity, spatial and chapter gates retain progress on bad actions", () => {
   const c = ctx(1);
@@ -168,7 +229,100 @@ test("full two-player progression is completable without skips and serializes th
         c.now += 1500;
         act(c, r, "throw", { held: 900, value: 0, pitch: 0.5 });
       }
+  assert.equal(c.state.phase, 9);
+  // Drive the added chapter through the same authoritative reducer and request
+  // receipts as a real two-player session; every beat survives JSON reloads.
+  for (const r of [0, 1]) c.poses[r].scene = "hollow";
+  for (const route of ["light", "water"])
+    for (let index = 0; index < 3; index++) {
+      const operator = expeditionOperator(route, index),
+        traveler = 1 - operator;
+      at(c, operator, expeditionControls[route]);
+      at(
+        c,
+        traveler,
+        (route === "water" ? waterReceivers : lightReceivers)[index],
+      );
+      act(c, operator, "exp-use", { target: `${route}-control` });
+      if (route === "light")
+        act(c, traveler, "exp-use", { target: `light-focus-${index}` });
+      const charge = route === "water" ? "waterCharge" : "lightCharge";
+      let ticks = 0;
+      while (c.state.expedition[charge][index] < 1 && ticks++ < 200) {
+        c.now += 200;
+        c.poses[0].time = c.poses[1].time = c.now;
+        if (route === "light") {
+          const receiver = lightReceiverPosition(index, c.now),
+            p = c.poses[operator],
+            dx = receiver.x - p.x,
+            dz = receiver.z - p.z;
+          p.yaw = Math.atan2(-dx, -dz);
+          p.pitch = Math.atan2(receiver.y - p.y - 1.65, Math.hypot(dx, dz));
+          act(c, traveler, "exp-focus", { value: focusTarget(index, c.now) });
+        }
+        act(c, operator, "exp-tick", { value: waterTarget(index, c.now) });
+        c.state = normalizeState(JSON.parse(JSON.stringify(c.state)));
+      }
+      assert.ok(ticks < 200, `joint ${route} receiver ${index} finishes`);
+      act(c, traveler, "exp-collect", { target: `${route}-${index}` });
+      assert.equal(c.state.expedition[route].length, index + 1);
+    }
+  assert.deepEqual(c.state.expedition.routeOrder, ["light", "water"]);
+  for (const r of [0, 1]) {
+    at(c, r, { x: heartStart.x + (r ? 0.75 : -0.75), z: heartStart.z });
+    act(c, r, "exp-grip");
+  }
+  for (const waypoint of [...carryWaypoints, heartCradle]) {
+    let ticks = 0;
+    while (
+      Math.hypot(
+        c.state.expedition.carry.x - waypoint.x,
+        c.state.expedition.carry.z - waypoint.z,
+      ) > 0.7 &&
+      ticks++ < 300
+    ) {
+      c.now += 200;
+      const heart = c.state.expedition.carry,
+        dx = waypoint.x - heart.x,
+        dz = waypoint.z - heart.z,
+        length = Math.hypot(dx, dz),
+        step = Math.min(0.5, length),
+        x = heart.x + (dx / length) * step,
+        z = heart.z + (dz / length) * step;
+      at(c, 0, { x: x - 0.75, z });
+      at(c, 1, { x: x + 0.75, z });
+      act(c, 0, "exp-tick");
+      c.state = normalizeState(JSON.parse(JSON.stringify(c.state)));
+    }
+    assert.ok(
+      ticks < 300,
+      "the shared heart clears every wall and reaches its next checkpoint",
+    );
+  }
+  act(c, 0, "exp-place");
+  assert.equal(c.state.expedition.carry.delivered, true);
+  for (let index = 0; index < 3; index++) {
+    at(c, 0, assemblyPads[index][0]);
+    at(c, 1, assemblyPads[index][1]);
+    act(c, 0, "exp-assemble");
+    c.now += 1000;
+    c.poses[0].time = c.now;
+    act(c, 1, "exp-assemble");
+    c.state = normalizeState(JSON.parse(JSON.stringify(c.state)));
+    assert.equal(c.state.expedition.assembly, index + 1);
+  }
+  assert.equal(
+    c.state.phase,
+    9,
+    "roof reveal remains available until both choose to leave",
+  );
+  at(c, 0, returnPoint);
+  at(c, 1, returnPoint);
+  act(c, 0, "exp-return");
+  act(c, 1, "exp-return");
   assert.equal(c.state.phase, 6);
+  assert.equal(c.state.expedition.completed, true);
+  for (const r of [0, 1]) c.poses[r].scene = "valley";
   for (let i = 0; i < 6; i++) {
     const r = i % 2,
       t = towers[i];
@@ -205,6 +359,24 @@ test("full two-player progression is completable without skips and serializes th
   assert.equal(c.state.phase, 8);
   assert.ok(c.state.completedAt);
   assert.equal(c.state.order, 8);
+});
+test("new adventures enter the hollow while migration never rewinds a legacy later chapter", () => {
+  const c = ctx(5);
+  c.state.fair.round = 3;
+  c.state.fair.throws = [5, 4];
+  at(c, 0, stations["pitch-0"]);
+  at(c, 1, stations["pitch-1"]);
+  c.now += 1500;
+  act(c, 1, "throw", { held: 900, value: 0, pitch: 0.5 });
+  assert.equal(c.state.phase, 9);
+  assert.equal(c.state.expedition.completed, false);
+  for (const phase of [6, 7, 8]) {
+    const legacy = { ...initialState(), phase };
+    delete legacy.expedition;
+    const migrated = normalizeState(legacy);
+    assert.equal(migrated.phase, phase);
+    assert.equal(migrated.expedition.completed, true);
+  }
 });
 test("boat and kite pause on a disconnected partner, without consuming existing work", () => {
   const c = ctx(3);

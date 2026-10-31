@@ -66,6 +66,7 @@
   transform: translateY(-1px);
 }
 .ll-lobby {
+  background: #122c30;
   min-height: 100svh;
   position: relative;
   overflow: hidden;
@@ -76,10 +77,12 @@
   position: absolute;
   right: 0;
   top: 0;
-  width: 66%;
+  width: 76%;
   height: 100%;
   object-fit: cover;
   object-position: 50% 46%;
+  mask-image: linear-gradient(90deg, transparent, #000 42%);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 42%);
 }
 .ll-lobby-shade {
   position: absolute;
@@ -177,16 +180,6 @@
   padding: 9px 3px;
   font-size: 12px;
 }
-.ll-duration {
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 11px;
-  color: #94a99d;
-  margin-top: 35px;
-}
-.ll-duration i,
 .ll-controls-hint i {
   height: 2px;
   width: 2px;
@@ -218,6 +211,99 @@
   transform-origin: left;
   background: #e6b568;
   border-radius: 5px;
+}
+.ll-exp-hud {
+  position: absolute;
+  right: 28px;
+  bottom: 102px;
+  width: 292px;
+  padding: 18px;
+  border: 1px solid #c6be8b38;
+  border-radius: 9px;
+  background: #142b2ce8;
+  box-shadow: 0 8px 30px #071a1933;
+  backdrop-filter: blur(10px);
+  z-index: 25;
+}
+.ll-exp-hud p {
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 8px;
+  color: #dfdfc9;
+}
+.ll-exp-hud small {
+  font-size: 10px;
+  color: #c6cbb7;
+}
+.ll-exp-hud .ll-steer {
+  margin-top: 12px;
+}
+.ll-exp-gauge {
+  position: relative;
+  height: 8px;
+  background: #8b9c8b44;
+  margin: 19px 3px 27px;
+  border-radius: 6px;
+}
+.ll-exp-gauge > i {
+  position: absolute;
+  top: -3px;
+  width: 22%;
+  height: 14px;
+  transform: translateX(-50%);
+  border-radius: 4px;
+  background: #e4bc6080;
+}
+.ll-exp-gauge > b {
+  position: absolute;
+  top: -4px;
+  width: 3px;
+  height: 16px;
+  background: #fff7db;
+  border-radius: 2px;
+  transform: translateX(-50%);
+}
+.ll-exp-gauge > span {
+  position: absolute;
+  top: 17px;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  color: #c7cbb6;
+}
+.ll-exp-gauge > span:last-child {
+  right: 0;
+}
+.ll-exp-progress {
+  height: 3px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #8b9c8b44;
+  margin-top: 16px;
+}
+.ll-exp-progress > i {
+  display: block;
+  height: 100%;
+  background: #efd08e;
+  transform-origin: left;
+  transition: transform 180ms linear;
+}
+.ll-exp-release {
+  background: none;
+  padding: 10px 0 0;
+  font-size: 10px;
+  color: #c7cbb6 !important;
+}
+.ll-exp-ready {
+  color: #f5d98d !important;
+}
+@media (max-width: 600px) {
+  .ll-exp-hud {
+    right: 14px;
+    bottom: 175px;
+    width: 230px;
+    max-width: calc(100vw - 28px);
+    padding: 14px;
+  }
 }
 .ll-loading,
 .ll-recovery {
@@ -1064,6 +1150,8 @@
     width: 100%;
     opacity: 0.55;
     object-position: 70%;
+    mask-image: none;
+    -webkit-mask-image: none;
   }
   .ll-lobby-shade {
     background:

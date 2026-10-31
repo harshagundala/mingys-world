@@ -5,7 +5,13 @@ import { net } from "./network";
 import { input } from "./controls";
 
 /** Quiet, spatial environmental beds, below the music and the partner's separate voice path. */
-export function WoodlandAudio({ river }: { river: boolean }) {
+export function WoodlandAudio({
+  river,
+  hollow = false,
+}: {
+  river: boolean;
+  hollow?: boolean;
+}) {
   const graph = useRef<{
     ctx: AudioContext;
     wind: GainNode;
@@ -79,16 +85,18 @@ export function WoodlandAudio({ river }: { river: boolean }) {
     const p = net.local;
     const bank = Math.abs(p.z + 68);
     const waterfall = Math.hypot(p.x - 94, p.z + 68);
-    const waterLevel = river
-      ? 0.15
-      : Math.max(0, 1 - bank / 28) * 0.085 +
-        Math.max(0, 1 - waterfall / 65) * 0.16;
+    const waterLevel = hollow
+      ? Math.max(0, 1 - Math.hypot(p.x + 48, p.z + 4) / 65) * 0.14
+      : river
+        ? 0.15
+        : Math.max(0, 1 - bank / 28) * 0.085 +
+          Math.max(0, 1 - waterfall / 65) * 0.16;
     const woodland = Math.max(0, Math.min(1, (-p.x - 8) / 35));
     const gust = 0.72 + Math.sin(t * 0.23) * 0.16 + Math.sin(t * 0.61) * 0.12;
     g.wind.gain.setTargetAtTime((0.045 + woodland * 0.045) * gust, t, 0.35);
     g.water.gain.setTargetAtTime(waterLevel, t, 0.6);
-    const dx = 94 - p.x,
-      dz = -68 - p.z;
+    const dx = (hollow ? -48 : 94) - p.x,
+      dz = (hollow ? -4 : -68) - p.z;
     const right =
       (dx * Math.cos(input.yaw) - dz * Math.sin(input.yaw)) /
       Math.max(1, Math.hypot(dx, dz));

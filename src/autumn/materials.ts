@@ -100,3 +100,29 @@ export function instanceBarkUV(shader: T.WebGLProgramParametersWithUniforms) {
   `,
   );
 }
+
+/** Preserve metre-scale grain on instanced trim, shutters and roofing tiles. */
+export function instanceBoxUV(shader: T.WebGLProgramParametersWithUniforms) {
+  shader.vertexShader = shader.vertexShader.replace(
+    "#include <uv_vertex>",
+    `#include <uv_vertex>
+    #ifdef USE_INSTANCING
+      vec3 boxSize=vec3(length(instanceMatrix[0].xyz),length(instanceMatrix[1].xyz),length(instanceMatrix[2].xyz));
+      vec3 boxPoint=position*boxSize, face=abs(normal);
+      vec2 boxUv;
+      if(face.y>face.x&&face.y>face.z) boxUv=boxSize.x>boxSize.z?boxPoint.xz:boxPoint.zx;
+      else if(face.x>face.z) boxUv=boxSize.z>boxSize.y?boxPoint.zy:boxPoint.yz;
+      else boxUv=boxSize.x>boxSize.y?boxPoint.xy:boxPoint.yx;
+      boxUv*=.65;
+      #ifdef USE_MAP
+        vMapUv=boxUv;
+      #endif
+      #ifdef USE_NORMALMAP
+        vNormalMapUv=boxUv;
+      #endif
+      #ifdef USE_ROUGHNESSMAP
+        vRoughnessMapUv=boxUv;
+      #endif
+    #endif`,
+  );
+}

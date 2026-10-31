@@ -1,6 +1,7 @@
 import {
   Suspense,
   memo,
+  lazy,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -16,6 +17,7 @@ import { Character } from "./Character";
 import { WorldDetails, ReflectiveWater, BuiltBridge } from "./WorldDetails";
 import { Landscape } from "./Landscape";
 import { RealSky } from "./RealSky";
+import { LocalLightingProvider, LocalLightSource } from "./LocalLighting";
 import { EnvironmentResponse } from "./EnvironmentResponse";
 import { WoodlandAudio } from "./WoodlandAudio";
 import { ScenicBackdrop } from "./ScenicBackdrop";
@@ -24,6 +26,12 @@ import { ForestFloor } from "./ForestFloor";
 import { Wildlife } from "./Wildlife";
 import { RenderBudget } from "./RenderBudget";
 import { StaticGeometry } from "./StaticGeometry";
+import { expeditionTargets } from "./expeditionPlay";
+import {
+  hollowSpawn,
+  hollowObstacles,
+  expeditionBounds,
+} from "./expeditionContent";
 import { net } from "./network";
 import { media } from "./media";
 import { input, trackpadLook } from "./controls";
@@ -63,7 +71,9 @@ import {
   lanternFrameGeometry,
   lanternFrameMaterial,
   paperMap,
+  finishLanternPaper,
 } from "./Models";
+const ExpeditionWorld = lazy(() => import("./ExpeditionWorld"));
 export type Target = {
   id: string;
   label: string;
@@ -71,6 +81,7 @@ export type Target = {
   x: number;
   z: number;
   role?: Role;
+  action?: string;
 };
 export const lanternColors = [
   "#ffbd68",
@@ -81,6 +92,7 @@ export const lanternColors = [
   "#e89b78",
 ];
 export function targetsFor(s: State, role: Role): Target[] {
+  if (s.phase === 9) return expeditionTargets(s.expedition, role);
   const out: Target[] = [];
   for (const [id, v] of Object.entries(stations))
     if (v.phase === s.phase)
@@ -732,6 +744,7 @@ function FloatingLeaves() {
 }
 function NightLanterns({ s }: { s: State }) {
   const bodies = useRef<(T.InstancedMesh | null)[]>([]);
+  const lights = useRef<(T.Group | null)[]>([]);
   const frames = useRef<T.InstancedMesh>(null);
   const object = useMemo(() => new T.Object3D(), []);
   const reduced = useRef(false);
@@ -747,6 +760,10 @@ function NightLanterns({ s }: { s: State }) {
         shape,
         slot: counts[shape]++,
         color: lanternColors[saved?.color ?? i % 6],
+        lightColor: new T.Color(lanternColors[saved?.color ?? i % 6]).lerp(
+          new T.Color("#ffc67c"),
+          0.45,
+        ),
         scale: 0.6 + rand(i) * 0.6,
       };
     });
@@ -782,6 +799,7 @@ function NightLanterns({ s }: { s: State }) {
       );
     };
     material.customProgramCacheKey = () => "personal-lantern-instancing-v1";
+    finishLanternPaper(material);
     return material;
   }, []);
   useEffect(() => {
@@ -828,6 +846,11 @@ function NightLanterns({ s }: { s: State }) {
         -26 + Math.cos(i * 2.4) * (7 + i * 0.4),
       );
       object.scale.setScalar(scale);
+      const source = lights.current[i];
+      if (source) {
+        source.position.copy(object.position);
+        source.scale.setScalar(scale);
+      }
       object.updateMatrix();
       frames.current.setMatrixAt(i, object.matrix);
       object.position.y += 0.4 * scale;
@@ -860,6 +883,20 @@ function NightLanterns({ s }: { s: State }) {
           castShadow
           dispose={null}
         />
+      ))}
+      {layout.lanterns.map(({ i, lightColor }) => (
+        <group
+          key={i}
+          ref={(el) => {
+            lights.current[i] = el;
+          }}
+        >
+          <LocalLightSource
+            position={[0, 0.4, 0]}
+            color={lightColor}
+            radius={0.12}
+          />
+        </group>
       ))}
       <Sparkles
         count={180}
@@ -1043,7 +1080,7 @@ function Player({
     lastSent = useRef(0),
     lastStep = useRef(0),
     lastNear = useRef(""),
-    scene = useRef("valley"),
+    scene = useRef(net.local.scene),
     planar = useRef(new T.Vector2()),
     view = useRef(new T.Vector2(input.yaw, input.pitch)),
     jumpHeld = useRef(false),
@@ -1053,6 +1090,7 @@ function Player({
     peerVec = useRef(new T.Vector3()),
     thirdBlend = useRef(input.third ? 1 : 0);
   const river = s.phase === 3 && s.boarded.length === 2;
+  const hollow = s.phase === 9;
   const [peerMoving, setPeerMoving] = useState(false),
     [showSelf, setShowSelf] = useState(false);
   useEffect(() => {
@@ -1068,16 +1106,25 @@ function Player({
     return () => net.removeEventListener("welcome", welcome);
   }, []);
   useEffect(() => {
-    const desired = river ? "river" : "valley";
+    const desired = hollow ? "hollow" : river ? "river" : "valley";
     if (scene.current !== desired) {
       scene.current = desired;
-      if (!river) pos.current.set(role ? 2 : -2, 0, 34);
-      else {
+      if (hollow) {
+        const start = hollowSpawn(role);
+        pos.current.set(start.x, start.y, start.z);
+        input.yaw = input.pitch = 0;
+        view.current.set(0, 0);
+      } else if (!river) {
+        pos.current.set(role ? 2 : -2, 0, 34);
+        input.yaw = input.pitch = 0;
+        view.current.set(0, 0);
+      } else {
         input.yaw = 0;
         input.pitch = 0;
       }
     }
-  }, [river, role]);
+    planar.current.set(0, 0);
+  }, [river, hollow, role]);
   useEffect(() => {
     const canvas = gl.domElement;
     const down = (e: MouseEvent) => {
@@ -1106,8 +1153,19 @@ function Player({
     const beforeX = p.x,
       beforeZ = p.z;
     const groundedFloor =
-      s.bridge >= 6 && Math.abs(p.x) < 2 && p.z < -56 && p.z > -79 ? 0.35 : 0;
-    const canWalk = !river && !input.blocked && s.kite?.role !== role;
+      !hollow && s.bridge >= 6 && Math.abs(p.x) < 2 && p.z < -56 && p.z > -79
+        ? 0.35
+        : 0;
+    const operating =
+      hollow &&
+      (s.expedition.operator?.role === role ||
+        s.expedition.receiver?.role === role);
+    const carrying =
+      hollow &&
+      !s.expedition.carry.delivered &&
+      s.expedition.carry.holders.includes(role);
+    const canWalk =
+      !river && !input.blocked && s.kite?.role !== role && !operating;
     let f = 0,
       side = 0;
     if (canWalk) {
@@ -1121,7 +1179,7 @@ function Player({
         input.touch.x;
     }
     const len = Math.max(1, Math.hypot(f, side)),
-      speed = input.keys.has("ShiftLeft") ? 6.8 : 4.4;
+      speed = carrying ? 2.35 : input.keys.has("ShiftLeft") ? 6.8 : 4.4;
     const targetX =
       ((-Math.sin(input.yaw) * f + Math.cos(input.yaw) * side) / len) * speed;
     const targetZ =
@@ -1139,6 +1197,25 @@ function Player({
       dt,
     );
     const clear = (x: number, z: number) => {
+      if (hollow) {
+        if (Math.abs(x) > expeditionBounds || Math.abs(z) > expeditionBounds)
+          return false;
+        if (
+          hollowObstacles.some(
+            (b) => Math.abs(x - b.x) < b.w && Math.abs(z - b.z) < b.d,
+          )
+        )
+          return false;
+        if (
+          carrying &&
+          Math.hypot(x - s.expedition.carry.x, z - s.expedition.carry.z) >
+            4.2 &&
+          Math.hypot(x - s.expedition.carry.x, z - s.expedition.carry.z) >=
+            Math.hypot(p.x - s.expedition.carry.x, p.z - s.expedition.carry.z)
+        )
+          return false;
+        return true;
+      }
       if (
         Math.abs(x) > 83 ||
         Math.abs(z) > 83 ||
@@ -1158,6 +1235,7 @@ function Player({
     const jump = input.keys.has("Space");
     if (
       canWalk &&
+      !carrying &&
       (input.jumpQueued || (jump && !jumpHeld.current)) &&
       p.y <= groundedFloor + 0.01
     )
@@ -1250,7 +1328,11 @@ function Player({
     const peer = net.motion.sample(performance.now()) || net.poses[1 - role];
     if (remote.current) {
       remote.current.visible =
-        !!peer && net.snapshot.peer && (river || peer.scene === "valley");
+        !!peer &&
+        net.snapshot.peer &&
+        (river
+          ? peer.scene === "river"
+          : peer.scene === (hollow ? "hollow" : "valley"));
       if (peer) {
         const target = peerVec.current.set(
           river ? s.boat.x + (role === 0 ? 0.65 : -0.65) : peer.x,
@@ -1308,21 +1390,25 @@ function Player({
         moving,
         time: Date.now() + net.clockOffset,
         seq: net.local.seq + 1,
-        scene: river ? "river" : "valley",
+        scene: hollow ? "hollow" : river ? "river" : "valley",
       });
       let nearest: Target | null = null,
         best = 3.8;
       if (!river)
         for (const target of targets) {
           if (target.role !== undefined && target.role !== role) continue;
+          if (target.action === "exp-guide") continue;
           const d = Math.hypot(target.x - p.x, target.z - p.z);
           if (d < best) {
             best = d;
             nearest = target;
           }
         }
-      if ((nearest?.id || "") !== lastNear.current) {
-        lastNear.current = nearest?.id || "";
+      const nearKey = nearest
+        ? `${nearest.id}:${nearest.label}:${nearest.action || ""}`
+        : "";
+      if (nearKey !== lastNear.current) {
+        lastNear.current = nearKey;
         onNear(nearest);
       }
     }
@@ -1380,6 +1466,7 @@ function Scene({
 }) {
   const targets = useMemo(() => targetsFor(s, role), [s, role]);
   const river = s.phase === 3 && s.boarded.length === 2,
+    hollow = s.phase === 9,
     night = s.phase >= 6;
   const { scene, gl } = useThree();
   const sun = useRef<T.DirectionalLight>(null),
@@ -1456,115 +1543,132 @@ function Scene({
   });
   return (
     <>
-      <RealSky night={night} rotation={Math.PI} />
-      <hemisphereLight
-        ref={hemisphere}
-        args={[
-          night ? "#b6ccd6" : "#d9e4e2",
-          night ? "#4d4740" : "#8c7757",
-          night ? 0.65 : 0.4,
-        ]}
-      />
-      <ambientLight intensity={night ? 0.2 : 0.05} />
-      <directionalLight
-        ref={sun}
-        position={[-92, 15, -75]}
-        intensity={night ? 0.9 : 2.6}
-        color={night ? "#8fa9cd" : "#ffe1ab"}
-        castShadow={quality !== "low"}
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-70}
-        shadow-camera-right={70}
-        shadow-camera-top={70}
-        shadow-camera-bottom={-70}
-        shadow-camera-far={260}
-        shadow-bias={-0.0004}
-        shadow-normalBias={0.06}
-      />
-      {night && (
-        <mesh
-          position={river ? [40, 35, -s.boat.progress - 130] : [65, 49, -110]}
-        >
-          <sphereGeometry args={[7, 32, 24]} />
-          <meshBasicMaterial map={moonMap} color="#f1dcb6" fog={false} />
-        </mesh>
-      )}
-      {night && (
-        <Stars
-          radius={160}
-          depth={70}
-          count={1700}
-          factor={3}
-          saturation={0.1}
-          fade
-          speed={0.15}
+      <LocalLightingProvider quality={quality}>
+        <RealSky night={night} rotation={Math.PI} />
+        <hemisphereLight
+          ref={hemisphere}
+          args={[
+            night ? "#b6ccd6" : "#d9e4e2",
+            night ? "#4d4740" : "#8c7757",
+            night ? 0.65 : 0.4,
+          ]}
         />
-      )}
-      {river ? (
-        <River s={s} quality={quality} />
-      ) : (
-        <>
-          <Landscape />
-          <ScenicBackdrop night={night} quality={quality} />
-          <ReflectiveWater quality={quality} night={night} />
-          <Forest phase={s.phase} />
-          <ForestFloor />
-          <Wildlife s={s} quality={quality} />
-          <Village s={s} />
-          <FloatingLeaves />
-          <HarvestEffects s={s} />
-          {s.phase <= 2 &&
-            props
-              .filter((p) => p.phase === s.phase && !s.collected.includes(p.id))
-              .map((p) => (
-                <Produce key={p.id} kind={p.kind} position={[p.x, 0.04, p.z]} />
+        <ambientLight intensity={night ? 0.2 : 0.05} />
+        <directionalLight
+          ref={sun}
+          position={[-92, 15, -75]}
+          intensity={night ? 0.9 : 2.6}
+          color={night ? "#8fa9cd" : "#ffe1ab"}
+          castShadow={quality !== "low"}
+          shadow-mapSize={[2048, 2048]}
+          shadow-camera-left={-70}
+          shadow-camera-right={70}
+          shadow-camera-top={70}
+          shadow-camera-bottom={-70}
+          shadow-camera-far={260}
+          shadow-bias={-0.0004}
+          shadow-normalBias={0.06}
+        />
+        {night && (
+          <mesh
+            position={river ? [40, 35, -s.boat.progress - 130] : [65, 49, -110]}
+          >
+            <sphereGeometry args={[7, 32, 24]} />
+            <meshBasicMaterial map={moonMap} color="#f1dcb6" fog={false} />
+          </mesh>
+        )}
+        {night && (
+          <Stars
+            radius={160}
+            depth={70}
+            count={1700}
+            factor={3}
+            saturation={0.1}
+            fade
+            speed={0.15}
+          />
+        )}
+        {hollow ? (
+          <>
+            <ExpeditionWorld expedition={s.expedition} quality={quality} />
+            <Markers targets={targets} role={role} />
+          </>
+        ) : river ? (
+          <River s={s} quality={quality} />
+        ) : (
+          <>
+            <Landscape />
+            <ScenicBackdrop night={night} quality={quality} />
+            <ReflectiveWater quality={quality} night={night} />
+            <Forest phase={s.phase} />
+            <ForestFloor />
+            <Wildlife s={s} quality={quality} />
+            <Village s={s} />
+            <FloatingLeaves />
+            <HarvestEffects s={s} />
+            {s.phase <= 2 &&
+              props
+                .filter(
+                  (p) => p.phase === s.phase && !s.collected.includes(p.id),
+                )
+                .map((p) => (
+                  <Produce
+                    key={p.id}
+                    kind={p.kind}
+                    position={[p.x, 0.04, p.z]}
+                  />
+                ))}
+            {s.phase === 0 &&
+              [0, 1].map((r) => (
+                <group key={r} position={[r ? 3 : -3, 0, 32]}>
+                  <Pole p={[0, 0.6, 0]} h={1.2} r={0.14} />
+                  <Lantern
+                    position={[0, 1.2, 0]}
+                    color={colors[r]}
+                    lit={s.ready.includes(r)}
+                  />
+                </group>
               ))}
-          {s.phase === 0 &&
-            [0, 1].map((r) => (
-              <group key={r} position={[r ? 3 : -3, 0, 32]}>
-                <Pole p={[0, 0.6, 0]} h={1.2} r={0.14} />
-                <Lantern
-                  position={[0, 1.2, 0]}
-                  color={colors[r]}
-                  lit={s.ready.includes(r)}
-                />
-              </group>
-            ))}
-          {s.phase >= 4 && s.phase !== 6 && s.phase !== 5 && <Kitchen s={s} />}
-          {s.phase === 5 && <Carnival s={s} role={role} />}
-          <WindTowers s={s} />
-          {s.phase >= 7 && <Meadow s={s} />}
-          <Markers targets={targets} role={role} />
-          {night && (
-            <Sparkles
-              count={100}
-              scale={[90, 8, 90]}
-              position={[0, 3, 0]}
-              size={3}
-              speed={0.3}
-              color="#ffdb9a"
-            />
-          )}
-          {s.phase === 8 && <NightLanterns s={s} />}
-        </>
-      )}
-      <WorldDetails s={s} river={river} />
-      <EnvironmentResponse s={s} river={river} quality={quality} />
-      <WoodlandAudio river={river} />
-      <Player
-        s={s}
-        role={role}
-        targets={targets}
-        onNear={onNear}
-        paused={paused}
-        focus={focus}
-      />
-      {quality === "high" && (
-        <EffectComposer multisampling={0}>
-          <Bloom intensity={0.22} luminanceThreshold={1.3} mipmapBlur />
-          <Vignette eskil={false} offset={0.22} darkness={0.16} />
-        </EffectComposer>
-      )}
+            {s.phase >= 4 && s.phase !== 6 && s.phase !== 5 && (
+              <Kitchen s={s} />
+            )}
+            {s.phase === 5 && <Carnival s={s} role={role} />}
+            <WindTowers s={s} />
+            {s.phase >= 7 && <Meadow s={s} />}
+            <Markers targets={targets} role={role} />
+            {night && (
+              <Sparkles
+                count={100}
+                scale={[90, 8, 90]}
+                position={[0, 3, 0]}
+                size={3}
+                speed={0.3}
+                color="#ffdb9a"
+              />
+            )}
+            {s.phase === 8 && <NightLanterns s={s} />}
+          </>
+        )}
+        {!hollow && <WorldDetails s={s} river={river} />}
+        {!hollow && (
+          <EnvironmentResponse s={s} river={river} quality={quality} />
+        )}
+        <WoodlandAudio river={river} hollow={hollow} />
+        <Player
+          s={s}
+          role={role}
+          targets={targets}
+          onNear={onNear}
+          paused={paused}
+          focus={focus}
+        />
+        {quality === "high" && (
+          <EffectComposer multisampling={0}>
+            <Bloom intensity={0.22} luminanceThreshold={1.3} mipmapBlur />
+            <Vignette eskil={false} offset={0.22} darkness={0.16} />
+          </EffectComposer>
+        )}
+      </LocalLightingProvider>
     </>
   );
 }
@@ -1577,6 +1681,13 @@ function World(props: {
   focus?: "journal" | "craft" | "chapter" | null;
 }) {
   const [dpr, setDpr] = useState(1);
+  useEffect(() => {
+    if (props.s.phase === 4 || props.s.phase === 5) {
+      // Fetch the next setting during the preceding chapter; its scene still
+      // mounts only on arrival, with the chapter card covering shader warmup.
+      void import("./ExpeditionWorld").catch(() => {});
+    }
+  }, [props.s.phase]);
   const [frameloop, setFrameloop] = useState<"always" | "never">("always");
   return (
     <Canvas

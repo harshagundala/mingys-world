@@ -9,6 +9,7 @@ export const input = {
   sensitivity: 1,
   holding: 0,
   jumpQueued: false,
+  mechanism: 0,
 };
 
 /** Trackpads deliver two-finger panning as wheel events, even without a click. */

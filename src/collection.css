@@ -1,0 +1,221 @@
+@font-face {
+  font-family: DM;
+  src: url("/fonts/dm-sans-400.ttf");
+}
+@font-face {
+  font-family: DM;
+  src: url("/fonts/dm-sans-600.ttf");
+  font-weight: 600;
+}
+@font-face {
+  font-family: Fraunces;
+  src: url("/fonts/fraunces-400.ttf");
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font-family: DM, Arial, sans-serif;
+  background: white;
+  color: #212824;
+}
+button,
+a,
+input {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  font: inherit;
+}
+a {
+  color: inherit;
+}
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid #af773d;
+  outline-offset: 5px;
+}
+.collection {
+  min-height: 100svh;
+  background: #fff;
+  padding: 0 7vw 70px;
+}
+.collection-header {
+  height: 116px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.collection-header h1 {
+  margin: 0;
+  font-family: "Times New Roman", Times, "Nimbus Roman", serif;
+  font-size: 40px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+.collection-shelf {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 42px;
+  max-width: 874px;
+  margin: 38px auto 0;
+}
+.collection-card {
+  text-decoration: none;
+  display: block;
+  min-width: 0;
+}
+.collection-poster {
+  aspect-ratio: 2/3;
+  position: relative;
+  overflow: hidden;
+  background: #214047;
+  box-shadow:
+    0 3px 5px #0000000d,
+    0 18px 30px -22px #18242044;
+  transition:
+    transform 0.4s,
+    box-shadow 0.4s;
+}
+.collection-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.65s;
+}
+.collection-poster:after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    #061e2c55,
+    transparent 45%,
+    transparent 76%,
+    #061c2544
+  );
+}
+.collection-poster-title {
+  position: absolute;
+  top: 8.8%;
+  left: 7%;
+  right: 7%;
+  z-index: 1;
+  text-align: center;
+  color: #fff0cf;
+}
+.collection-poster-title > span {
+  font-size: 8px;
+  letter-spacing: 0.32em;
+  font-weight: 600;
+}
+.collection-poster-title h2 {
+  font-family: Fraunces, Georgia, serif;
+  font-weight: 400;
+  line-height: 1.02;
+  font-size: clamp(36px, 4.4vw, 59px);
+  letter-spacing: -0.05em;
+  margin: 16px auto 0;
+  max-width: 280px;
+  text-shadow: 0 2px 16px #172d3988;
+}
+.collection-card.light .collection-poster-title {
+  color: #253c31;
+}
+.collection-card.light h2 {
+  text-shadow: 0 1px 15px #fff9e5aa;
+}
+.collection-card.light .collection-poster:after {
+  background: linear-gradient(
+    #fff4d422,
+    transparent 45%,
+    transparent 80%,
+    #2b392833
+  );
+}
+.collection-play {
+  position: absolute;
+  bottom: 25px;
+  left: 25px;
+  right: 25px;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #fff;
+  font-size: 13px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: 0.3s;
+}
+.collection-card:hover .collection-poster {
+  transform: translateY(-6px);
+  box-shadow: 0 22px 40px -24px #172d3966;
+}
+.collection-card:hover img {
+  transform: scale(1.025);
+}
+.collection-card:hover .collection-play,
+.collection-card:focus-visible .collection-play {
+  opacity: 1;
+  transform: none;
+}
+.collection-caption {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 18px;
+  font-size: 14px;
+}
+.collection-caption > span:last-child {
+  font-size: 11px;
+  color: #90958e;
+}
+.route-loading {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  color: #666e67;
+  background: #fff;
+}
+@media (min-width: 1500px) {
+  .collection-shelf {
+    margin-top: 65px;
+    max-width: 940px;
+    gap: 50px;
+  }
+}
+@media (max-width: 650px) {
+  .collection {
+    padding: 0 6vw 45px;
+  }
+  .collection-header {
+    height: 85px;
+  }
+  .collection-shelf {
+    max-width: 380px;
+    grid-template-columns: 1fr;
+    gap: 36px;
+    margin-top: 18px;
+  }
+  .collection-poster-title h2 {
+    font-size: 51px;
+  }
+  .collection-play {
+    opacity: 1;
+  }
+  .collection-caption {
+    margin-top: 13px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+  }
+  .collection-poster,
+  .collection-poster img {
+    transition: none;
+  }
+}

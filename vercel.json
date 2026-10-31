@@ -25,7 +25,7 @@
         },
         {
           "key": "Permissions-Policy",
-          "value": "camera=(self), microphone=()"
+          "value": "camera=(self), microphone=(self)"
         },
         {
           "key": "X-Content-Type-Options",
@@ -37,6 +37,14 @@
   "rewrites": [
     {
       "source": "/reset",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/puppies",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/last-light",
       "destination": "/index.html"
     }
   ]

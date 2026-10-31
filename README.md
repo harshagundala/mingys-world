@@ -1,10 +1,28 @@
-# Mingy’s World
+# Mingy — Games
+
+The homepage is a white, poster-style game collection. **Mingy’s World** remains at `/puppies`; legacy `/#room=…` invitations and `/reset` still work. **The Last Light** opens at `/last-light` with its own room namespace and independent save.
+
+## The Last Light (no spoilers)
+
+A first-person autumn adventure for Harsha and Mingy. Both open the title, choose their character, and step into the evening. Returning browsers keep their seat. Camera and microphone are separate opt-in controls; saved preferences are restored when you press the join button after a refresh. Headphones and a recent desktop Chrome or Edge are recommended. Touch movement and look controls are included.
+
+WASD walks, mouse looks, E interacts, Shift runs, Space jumps, V changes viewpoint, Q calls your partner, and H opens the current field guide. Click the world to capture the mouse; Escape releases it. Right-drag works without pointer lock. The field guide explains only the current activity.
+
+The intended first-time pace is approximately 50–60 minutes, depending on exploration and conversation. This is a design estimate, not a measured first-time human playtest. There are no permanent failure states; timing assistance is built in. Each accepted action is saved, and activities retain completed work across disconnects. The two games do not share progression or resets.
+
+The new transport uses redundant peer/server movement, heartbeats, reconnect backoff, periodic authoritative snapshots, bounded action retries, deduplicated receipts, and latency-aware timing. WebRTC carries voice, video, and motion; if direct media cannot connect, compressed camera frames and low-latency mono PCM audio travel over the game connection. Neither camera nor microphone data is recorded or stored. Durable game saves remain in the existing Redis integration.
+
+Validation includes a complete rules-level playthrough, two independent Chromium players with synthetic cameras/microphones, each interaction family through real controls in isolated staged chapters, direct and fallback media, refresh/reconnect/offline recovery, responsive layout, and the original game’s regression suite. Automated checks cannot guarantee absence of bugs or determine a couple’s actual completion time.
+
+`node scripts/check-autumn-transport.mjs [origin]` creates a separate QA room. `scripts/autumn-fixture.ts` refuses to run without an explicit QA room and QA namespace. Test instrumentation is excluded from production builds. Browser test processes must use `--mute-audio`.
+
+## Original puppy adventure
 
 A browser mystery for two golden retriever puppies. Built for a long-distance date, with a fully explorable 3D house, original Blender puppy models, cooperative evidence, camera tiles, and a personal photo ending.
 
 ## Playing (no spoilers)
 
-Both players open https://mingy.world, choose a puppy, and press **Join our adventure**. The server pairs the first two browsers into the same saved adventure and assigns the available puppy if both choose the same one. Each browser remembers its puppy when reconnecting; an extra tab replaces its own previous connection, while a third device cannot displace either player. Keep your existing call open for audio. Choose **Enable camera** on the welcome card for a live preview. The camera button in the top right remains available while playing. Camera capture is video only.
+Both players open https://mingy.world/puppies, choose a puppy, and press **Join our adventure**. The server pairs the first two browsers into the same saved adventure and assigns the available puppy if both choose the same one. Each browser remembers its puppy when reconnecting; an extra tab replaces its own previous connection, while a third device cannot displace either player. Keep your existing call open for audio. Choose **Enable camera** on the welcome card for a live preview. The camera button in the top right remains available while playing. Camera capture is video only.
 
 - Arrow keys or WASD: move
 - Space: jump

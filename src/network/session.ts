@@ -38,6 +38,7 @@ class Session extends EventTarget {
     time: 0,
   };
   lastRemote = 0;
+  lastPeerPose = 0;
   playerId = "";
   requestedRoom = "";
   closed = false;
@@ -146,6 +147,7 @@ class Session extends EventTarget {
         if (m.role !== this.snapshot.role) {
           if (
             this.fastTransport?.readyState !== "open" ||
+            Date.now() - this.lastPeerPose > 250 ||
             m.type === "joined" ||
             this.poses[m.role]?.place !== m.pose.place
           )
@@ -232,6 +234,7 @@ class Session extends EventTarget {
   }
   receivePeerPose(p: Pose) {
     if (!p || ![p.x, p.y, p.z, p.rot].every(Number.isFinite)) return;
+    this.lastPeerPose = Date.now();
     const role = 1 - this.snapshot.role;
     this.poses[role] = p;
     this.lastRemote = Date.now();
@@ -242,7 +245,7 @@ class Session extends EventTarget {
     const direct = this.fastTransport?.readyState === "open";
     if (direct && this.fastTransport!.bufferedAmount < 10000)
       this.fastTransport!.send(JSON.stringify(p));
-    if (!direct || performance.now() - this.lastDurablePose > 450) {
+    if (!direct || performance.now() - this.lastDurablePose > 180) {
       this.send({ type: "pose", pose: p });
       this.lastDurablePose = performance.now();
     }

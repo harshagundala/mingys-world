@@ -1,3 +1,4 @@
+import { attachAutumn } from "../server/autumn/hub.ts";
 import http from "node:http";
 import { WebSocketServer } from "ws";
 import { attachSocket } from "../server/hub.ts";
@@ -29,7 +30,8 @@ const server = http.createServer(async (req: any, res: any) => {
 });
 new WebSocketServer({ server, maxPayload: 50000 }).on(
   "connection",
-  attachSocket,
+  (ws, req) =>
+    req.url?.includes("game=autumn") ? attachAutumn(ws) : attachSocket(ws, req),
 );
 server.listen(Number(process.env.MINGY_LOCAL_PORT || 4101), "127.0.0.1", () =>
   console.log(

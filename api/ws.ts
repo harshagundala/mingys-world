@@ -1,3 +1,4 @@
+import { attachAutumn } from "../server/autumn/hub.ts";
 import http from "node:http";
 import { WebSocketServer } from "ws";
 import { attachSocket } from "../server/hub.ts";
@@ -13,5 +14,7 @@ const wss = new WebSocketServer({
   maxPayload: 50000,
   perMessageDeflate: false,
 });
-wss.on("connection", attachSocket);
+wss.on("connection", (ws, req) =>
+  req.url?.includes("game=autumn") ? attachAutumn(ws) : attachSocket(ws, req),
+);
 export default server;

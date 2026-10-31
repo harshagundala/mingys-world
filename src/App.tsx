@@ -65,7 +65,7 @@ const World = lazy(() => import("./game/World"));
 const parsed = new URLSearchParams(location.hash.slice(1));
 const linkedRoom = parsed.get("room") || "";
 const invitedRoom = /^[a-zA-Z0-9_-]{20,64}$/.test(linkedRoom) ? linkedRoom : "";
-const shareUrl = `${location.origin}/${invitedRoom ? `#${new URLSearchParams({ room: invitedRoom })}` : ""}`;
+const shareUrl = `${location.origin}/puppies${invitedRoom ? `#${new URLSearchParams({ room: invitedRoom })}` : ""}`;
 class Boundary extends Component<
   { children: React.ReactNode },
   { error: boolean }

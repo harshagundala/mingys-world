@@ -20,17 +20,17 @@ import {
   returnPoint,
   waterReceivers,
   waterTarget,
-} from "../../src/autumn/expeditionContent";
+} from "../../src/autumn/expeditionContent.ts";
 import type {
   ExpeditionPoint,
   ExpeditionRoute,
   ExpeditionState,
-} from "../../src/autumn/expeditionContent";
-import type { Role } from "../../src/autumn/content";
+} from "../../src/autumn/expeditionContent.ts";
+import type { Role } from "../../src/autumn/content.ts";
 export type {
   ExpeditionState,
   Expedition,
-} from "../../src/autumn/expeditionContent";
+} from "../../src/autumn/expeditionContent.ts";
 
 export type ExpeditionPose = {
   x: number;

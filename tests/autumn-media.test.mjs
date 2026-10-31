@@ -1,4 +1,5 @@
 import test from "node:test";
+import { setMaxListeners } from "node:events";
 import assert from "node:assert/strict";
 
 class Stream {
@@ -108,6 +109,8 @@ globalThis.document = {
 };
 const { net } = await import("../src/autumn/network.ts");
 const { Media } = await import("../src/autumn/media.ts");
+// Independent Media fixtures share the mocked network; production has one instance.
+setMaxListeners(32, net);
 let sent = [];
 net.send = (m) => {
   sent.push(m);
@@ -299,5 +302,83 @@ test("legacy SDP identity ignores gathered candidates but retains ICE restart cr
   });
   assert.notEqual(m.pc, peer);
   assert.equal(peer.closed, true);
+  m.disconnect();
+});
+
+test("lobby capture and joining reuse one camera or microphone track, including concurrent calls", async () => {
+  const m = setup(1);
+  m.unlock = async () => {};
+  m.captureVoice = () => {};
+  let captures = 0,
+    finish;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        getUserMedia() {
+          captures++;
+          return new Promise((resolve) => {
+            finish = resolve;
+          });
+        },
+      },
+    },
+  });
+  for (const kind of ["camera", "mic"]) {
+    const first = m.enable(kind),
+      second = m.enable(kind);
+    assert.equal(first, second);
+    await Promise.resolve();
+    const track = {
+      kind: kind === "camera" ? "video" : "audio",
+      readyState: "live",
+      addEventListener() {},
+      stop() {
+        this.readyState = "ended";
+      },
+    };
+    finish(new Stream([track]));
+    await Promise.all([first, second]);
+    await m.enable(kind); // joining restores a preference already enabled in lobby
+    assert.equal(
+      m.stream.getTracks().filter((t) => t.kind === track.kind).length,
+      1,
+    );
+    assert.equal(m.captures[kind], undefined);
+  }
+  assert.equal(captures, 2);
+  assert.equal(m.stream.getTracks().length, 2);
+  m.disconnect();
+});
+
+test("failed capture clears its in-flight entry so a later permission retry works", async () => {
+  const m = setup(1);
+  m.unlock = async () => {};
+  let attempts = 0;
+  const track = {
+    kind: "video",
+    readyState: "live",
+    addEventListener() {},
+    stop() {},
+  };
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        async getUserMedia() {
+          if (++attempts === 1)
+            throw Object.assign(new Error("blocked"), {
+              name: "NotAllowedError",
+            });
+          return new Stream([track]);
+        },
+      },
+    },
+  });
+  await assert.rejects(m.enable("camera"), /permission is blocked/);
+  assert.equal(m.captures.camera, undefined);
+  await m.enable("camera");
+  assert.equal(attempts, 2);
+  assert.equal(m.stream.getVideoTracks().length, 1);
   m.disconnect();
 });

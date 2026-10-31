@@ -21,6 +21,7 @@ export class Media extends EventTarget {
   stream = new MediaStream();
   remote = new MediaStream();
   pc: RTCPeerConnection | null = null;
+  captures: Partial<Record<"camera" | "mic", Promise<void>>> = {};
   cameraOn = false;
   micOn = false;
   remoteCamera = false;
@@ -97,7 +98,27 @@ export class Media extends EventTarget {
   announce() {
     net.send({ type: "media", camera: this.cameraOn, mic: this.micOn });
   }
-  async enable(kind: "camera" | "mic") {
+  enable(kind: "camera" | "mic"): Promise<void> {
+    const type = kind === "camera" ? "video" : "audio";
+    const enabled = kind === "camera" ? this.cameraOn : this.micOn;
+    if (
+      enabled &&
+      this.stream
+        .getTracks()
+        .some((track) => track.kind === type && track.readyState !== "ended")
+    )
+      return Promise.resolve();
+    const pending = this.captures[kind];
+    if (pending) return pending;
+    // Lobby capture and saved-preference restoration can overlap at join.
+    // They share one permission request and one live track per media kind.
+    const capture = this.capture(kind).finally(() => {
+      if (this.captures[kind] === capture) delete this.captures[kind];
+    });
+    this.captures[kind] = capture;
+    return capture;
+  }
+  private async capture(kind: "camera" | "mic") {
     await this.unlock();
     this.error = "";
     if (!navigator.mediaDevices?.getUserMedia)

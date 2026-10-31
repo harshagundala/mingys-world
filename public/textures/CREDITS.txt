@@ -1,3 +1,10 @@
 Wooden Floor 02 by Poly Haven. CC0.
 https://polyhaven.com/a/wooden_floor_02
 Source resolution: 1K. Diffuse, OpenGL normal and roughness maps.
+
+The Last Light photographic PBR materials and HDR sky: Poly Haven, CC0.
+Local assets; no runtime connection to an external asset service is required.
+Individual source URLs and identifiers: sources.json.
+
+Autumn foliage atlas: AI-generated original bitmap.
+See autumn-leaf-cluster.source.txt for provenance.

@@ -1,0 +1,5 @@
+autumn-leaf-cluster.webp
+Created for The Last Light with OpenAI ImageGen, 31 October 2026.
+Photorealistic generated beech twig cutout; not a photographed/scanned source.
+Original generated PNG converted to 1024 x 1024 WebP with alpha retained.
+Used as an instanced, alpha-tested foliage card in src/autumn/Models.tsx.

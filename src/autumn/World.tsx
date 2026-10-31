@@ -1,4 +1,11 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Stars, Sparkles } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
@@ -7,6 +14,15 @@ import { HeldObjectRig, HarvestEffects } from "./ActionDetails";
 import { Character } from "./Character";
 import { WorldDetails, ReflectiveWater, BuiltBridge } from "./WorldDetails";
 import { Landscape } from "./Landscape";
+import { RealSky } from "./RealSky";
+import { EnvironmentResponse } from "./EnvironmentResponse";
+import { WoodlandAudio } from "./WoodlandAudio";
+import { ScenicBackdrop } from "./ScenicBackdrop";
+import { RiverTerrain } from "./RiverTerrain";
+import { ForestFloor } from "./ForestFloor";
+import { Wildlife } from "./Wildlife";
+import { RenderBudget } from "./RenderBudget";
+import { StaticGeometry } from "./StaticGeometry";
 import { net } from "./network";
 import { media } from "./media";
 import { input } from "./controls";
@@ -42,6 +58,10 @@ import {
   Produce,
   Sign,
   mat,
+  lanternBodyGeometry,
+  lanternFrameGeometry,
+  lanternFrameMaterial,
+  paperMap,
 } from "./Models";
 export type Target = {
   id: string;
@@ -111,47 +131,6 @@ export function targetsFor(s: State, role: Role): Target[] {
       if (!s.moths.includes(m.id))
         out.push({ ...m, label: "Keep a little light", kind: "moth" });
   return out;
-}
-function Atmosphere({
-  night,
-  river,
-  progress,
-}: {
-  night: boolean;
-  river: boolean;
-  progress: number;
-}) {
-  const material = useRef<T.ShaderMaterial>(null);
-  const uniforms = useMemo(
-    () => ({ night: { value: night ? 1 : 0 }, time: { value: 0 } }),
-    [],
-  );
-  useFrame(({ clock }, dt) => {
-    if (material.current) {
-      material.current.uniforms.night.value = T.MathUtils.damp(
-        material.current.uniforms.night.value,
-        night ? 1 : 0,
-        0.35,
-        dt,
-      );
-      material.current.uniforms.time.value = clock.elapsedTime * 0.002;
-    }
-  });
-  return (
-    <mesh position={[0, 0, river ? -progress : 0]}>
-      <sphereGeometry args={[300, 32, 24]} />
-      <shaderMaterial
-        ref={material}
-        side={T.BackSide}
-        depthWrite={false}
-        uniforms={uniforms}
-        vertexShader={`varying vec3 v;void main(){v=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`}
-        fragmentShader={`varying vec3 v;uniform float night;uniform float time;
- float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<5;i++){s+=a*noise(p);p=p*2.03+vec2(4.3);a*=.5;}return s;}
- void main(){vec3 d=normalize(v);float y=max(d.y,0.);vec3 horizon=mix(vec3(.78,.77,.65),vec3(.16,.25,.29),night);vec3 zenith=mix(vec3(.31,.49,.56),vec3(.035,.09,.14),night);vec3 col=mix(horizon,zenith,pow(y,.45));vec3 sun=normalize(vec3(.5,.34,-.75));float dotSun=max(0.,dot(d,sun));col+=vec3(1.,.66,.3)*pow(dotSun,22.)*.18*(1.-night);col+=vec3(1.,.8,.5)*smoothstep(.998,.9995,dotSun)*(1.-night);vec2 uv=d.xz/max(.18,y)*1.4+time;float cloud=smoothstep(.52,.73,fbm(uv))*smoothstep(.02,.2,y);col=mix(col,mix(vec3(.91,.85,.7),vec3(.21,.29,.33),night),cloud*.75);gl_FragColor=vec4(col,1.);}`}
-      />
-    </mesh>
-  );
 }
 function Village({ s }: { s: State }) {
   const wheel = useRef<T.Group>(null);
@@ -347,39 +326,45 @@ function Kitchen({ s }: { s: State }) {
           />
         )}
       </group>
-      {tables.map((p, i) => (
-        <group key={p.id} position={[p.x, 0, p.z]}>
-          <Pole p={[0, 0.5, 0]} r={0.12} h={1} />
-          <Pole p={[0, 1, 0]} r={1.4} h={0.15} color="#c3a576" />
-          <Lantern position={[0, 1.1, 0]} scale={0.6} />
-          {i < s.order && (
-            <Orb p={[0.5, 1.12, 0.2]} s={[0.35, 0.04, 0.35]} color="#e1d4b1" />
-          )}
-          {[-1, 1].map((side) => (
-            <group key={side} position={[side * 1.8, 0, 0]}>
-              <Box p={[0, 0.45, 0]} s={[0.7, 0.12, 0.7]} />
+      <StaticGeometry revision={s.order}>
+        {tables.map((p, i) => (
+          <group key={p.id} position={[p.x, 0, p.z]}>
+            <Pole p={[0, 0.5, 0]} r={0.12} h={1} />
+            <Pole p={[0, 1, 0]} r={1.4} h={0.15} color="#c3a576" />
+            <Lantern position={[0, 1.1, 0]} scale={0.6} />
+            {i < s.order && (
               <Orb
-                p={[0, 0.95, 0]}
-                s={[0.35, 0.5, 0.3]}
-                color={["#849c8a", "#a17e65", "#8e839b"][i % 3]}
+                p={[0.5, 1.12, 0.2]}
+                s={[0.35, 0.04, 0.35]}
+                color="#e1d4b1"
               />
-              <Orb p={[0, 1.5, 0]} s={[0.27, 0.27, 0.25]} color="#d2b28b" />
-              {[-1, 1].map((e) => (
+            )}
+            {[-1, 1].map((side) => (
+              <group key={side} position={[side * 1.8, 0, 0]}>
+                <Box p={[0, 0.45, 0]} s={[0.7, 0.12, 0.7]} />
                 <Orb
-                  key={e}
-                  p={[e * 0.1, 1.55, 0.23]}
-                  s={[0.03, 0.035, 0.02]}
-                  color="#293d3d"
+                  p={[0, 0.95, 0]}
+                  s={[0.35, 0.5, 0.3]}
+                  color={["#849c8a", "#a17e65", "#8e839b"][i % 3]}
                 />
-              ))}
-              <mesh position={[0, 1.87, 0]}>
-                <coneGeometry args={[0.34, 0.5, 8]} />
-                <meshStandardMaterial color={i % 2 ? "#bd8d4b" : "#6c8d7a"} />
-              </mesh>
-            </group>
-          ))}
-        </group>
-      ))}
+                <Orb p={[0, 1.5, 0]} s={[0.27, 0.27, 0.25]} color="#d2b28b" />
+                {[-1, 1].map((e) => (
+                  <Orb
+                    key={e}
+                    p={[e * 0.1, 1.55, 0.23]}
+                    s={[0.03, 0.035, 0.02]}
+                    color="#293d3d"
+                  />
+                ))}
+                <mesh position={[0, 1.87, 0]}>
+                  <coneGeometry args={[0.34, 0.5, 8]} />
+                  <meshStandardMaterial color={i % 2 ? "#bd8d4b" : "#6c8d7a"} />
+                </mesh>
+              </group>
+            ))}
+          </group>
+        ))}
+      </StaticGeometry>
     </group>
   );
 }
@@ -701,34 +686,135 @@ function FloatingLeaves() {
   );
 }
 function NightLanterns({ s }: { s: State }) {
-  const refs = useRef<(T.Group | null)[]>([]);
-  useFrame(({ clock }) => {
-    refs.current.forEach((r, i) => {
-      if (r) {
-        const t = clock.elapsedTime * 0.26 + rand(i) * 10;
-        r.position.set(
-          Math.sin(i * 2.4) * (7 + i * 0.55) + Math.sin(t) * 2,
-          4 + ((t * (1 + rand(i))) % 35),
-          -26 + Math.cos(i * 2.4) * (7 + i * 0.4),
-        );
-      }
+  const bodies = useRef<(T.InstancedMesh | null)[]>([]);
+  const frames = useRef<T.InstancedMesh>(null);
+  const object = useMemo(() => new T.Object3D(), []);
+  const reduced = useRef(false);
+  const flightTime = useRef<number | null>(null);
+  const layout = useMemo(() => {
+    const counts = [0, 0, 0];
+    const lanterns = Array.from({ length: 42 }, (_, i) => {
+      const saved = s.lanterns[`lantern-${i}`];
+      const requestedShape = saved?.shape ?? i % 3;
+      const shape = requestedShape === 1 ? 1 : requestedShape === 2 ? 2 : 0;
+      return {
+        i,
+        shape,
+        slot: counts[shape]++,
+        color: lanternColors[saved?.color ?? i % 6],
+        scale: 0.6 + rand(i) * 0.6,
+      };
     });
+    return { counts, lanterns };
+  }, [s.lanterns]);
+  const paper = useMemo(() => {
+    const material = new T.MeshStandardMaterial({
+      color: "#ffffff",
+      emissive: "#ffffff",
+      map: paperMap(),
+      emissiveMap: paperMap(),
+      emissiveIntensity: 0.65,
+      roughness: 0.8,
+    });
+    // Standard instanceColor tints diffuse light only. Carry the same linear
+    // color through emission so each personal lantern keeps its original glow.
+    material.onBeforeCompile = (shader) => {
+      shader.vertexShader = "varying vec3 lanternTint;\n" + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <color_vertex>",
+        `#include <color_vertex>
+        #ifdef USE_INSTANCING_COLOR
+          lanternTint = instanceColor;
+        #else
+          lanternTint = vec3(1.);
+        #endif`,
+      );
+      shader.fragmentShader =
+        "varying vec3 lanternTint;\n" + shader.fragmentShader;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <emissivemap_fragment>",
+        "#include <emissivemap_fragment>\ntotalEmissiveRadiance *= lanternTint;",
+      );
+    };
+    material.customProgramCacheKey = () => "personal-lantern-instancing-v1";
+    return material;
+  }, []);
+  useEffect(() => {
+    const meshes = [...bodies.current, frames.current];
+    return () => {
+      paper.dispose();
+      // Instancing buffers belong to this flight; shared geometry/maps do not.
+      meshes.forEach((mesh) => mesh?.dispose());
+    };
+  }, [paper]);
+  useEffect(() => {
+    const query = matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => (reduced.current = query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  useLayoutEffect(() => {
+    const color = new T.Color();
+    for (const lantern of layout.lanterns)
+      bodies.current[lantern.shape]?.setColorAt(
+        lantern.slot,
+        color.set(lantern.color),
+      );
+    for (const mesh of [...bodies.current, frames.current]) {
+      if (!mesh) continue;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      // Conservative bounds cover the complete flight path without rebuilding
+      // the bounding sphere on every animation frame.
+      mesh.boundingSphere = new T.Sphere(new T.Vector3(0, 20, -26), 65);
+      mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
+    }
+  }, [layout]);
+  useFrame(({ clock }, dt) => {
+    if (!frames.current || document.hidden) return;
+    if (flightTime.current === null) flightTime.current = clock.elapsedTime;
+    else flightTime.current += dt * (reduced.current ? 0.12 : 1);
+    for (const lantern of layout.lanterns) {
+      const { i, shape, slot, scale } = lantern;
+      const t = flightTime.current * 0.26 + rand(i) * 10;
+      object.position.set(
+        Math.sin(i * 2.4) * (7 + i * 0.55) + Math.sin(t) * 2,
+        4 + ((t * (1 + rand(i))) % 35),
+        -26 + Math.cos(i * 2.4) * (7 + i * 0.4),
+      );
+      object.scale.setScalar(scale);
+      object.updateMatrix();
+      frames.current.setMatrixAt(i, object.matrix);
+      object.position.y += 0.4 * scale;
+      object.updateMatrix();
+      bodies.current[shape]?.setMatrixAt(slot, object.matrix);
+    }
+    frames.current.instanceMatrix.needsUpdate = true;
+    for (const body of bodies.current)
+      if (body) body.instanceMatrix.needsUpdate = true;
   });
   return (
     <>
-      {Array.from({ length: 42 }, (_, i) => (
-        <group
-          key={i}
+      <instancedMesh
+        name="lantern-cloud-frames"
+        ref={frames}
+        args={[lanternFrameGeometry(), lanternFrameMaterial(), 42]}
+        castShadow
+        receiveShadow
+        dispose={null}
+      />
+      {[0, 1, 2].map((shape) => (
+        <instancedMesh
+          key={shape}
+          name={`lantern-cloud-paper-${shape}`}
           ref={(el) => {
-            refs.current[i] = el;
+            bodies.current[shape] = el;
           }}
-        >
-          <Lantern
-            color={lanternColors[s.lanterns[`lantern-${i}`]?.color ?? i % 6]}
-            scale={0.6 + rand(i) * 0.6}
-            shape={s.lanterns[`lantern-${i}`]?.shape ?? i % 3}
-          />
-        </group>
+          args={[lanternBodyGeometry(shape), paper, 42]}
+          count={layout.counts[shape]}
+          castShadow
+          dispose={null}
+        />
       ))}
       <Sparkles
         count={180}
@@ -786,15 +872,8 @@ function River({ s, quality }: { s: State; quality: string }) {
     <>
       <ReflectiveWater river quality={quality} />
       <Forest river phase={s.phase} />
-      {[-1, 1].map((side) => (
-        <group key={side}>
-          <Box
-            p={[side * 50, -0.6, -360]}
-            s={[65, 1.2, 1700]}
-            color="#898e62"
-          />
-        </group>
-      ))}
+      <ForestFloor river progress={s.boat.progress} />
+      <RiverTerrain />
       {Array.from({ length: 26 }, (_, i) => (
         <group key={i} position={[Math.sin(i * 2.4) * 5, 1, -i * 35]}>
           <mesh>
@@ -1051,7 +1130,9 @@ function Player({
       t - lastStep.current > (speed > 5 ? 0.29 : 0.43) &&
       p.y <= groundedFloor + 0.02
     ) {
-      sound.step();
+      sound.step(
+        groundedFloor > 0 ? "wood" : Math.abs(p.x) < 3.5 ? "gravel" : "leaves",
+      );
       lastStep.current = t;
     }
     const bob =
@@ -1289,7 +1370,7 @@ function Scene({
     return t;
   }, []);
   useEffect(() => () => moonMap.dispose(), [moonMap]);
-  const dayFog = useMemo(() => new T.Color("#b5bdb0"), []),
+  const dayFog = useMemo(() => new T.Color("#b9c0bd"), []),
     nightFog = useMemo(() => new T.Color("#263c44"), []);
   const dayLight = useMemo(() => new T.Color("#ffe1ab"), []),
     nightLight = useMemo(() => new T.Color("#8fa9cd"), []);
@@ -1306,39 +1387,42 @@ function Scene({
   useFrame((_, dt) => {
     dusk.current = T.MathUtils.damp(dusk.current, night ? 1 : 0, 0.32, dt);
     const v = dusk.current;
-    gl.toneMappingExposure = T.MathUtils.lerp(1.02, 1.2, v);
+    gl.toneMappingExposure = T.MathUtils.lerp(1.12, 1.2, v);
     if (scene.fog instanceof T.Fog) {
       scene.fog.color.copy(dayFog).lerp(nightFog, v);
       scene.fog.near = T.MathUtils.lerp(75, 45, v);
     }
     if (sun.current) {
       sun.current.color.copy(dayLight).lerp(nightLight, v);
-      sun.current.intensity = T.MathUtils.lerp(2.8, 0.9, v);
+      sun.current.intensity = T.MathUtils.lerp(2.6, 0.9, v);
       const z = river ? -predictedRiver(s) : 0;
-      sun.current.position.set(35, 55, 25 + z);
+      sun.current.position.set(
+        T.MathUtils.lerp(-92, 65, v),
+        T.MathUtils.lerp(15, 49, v),
+        T.MathUtils.lerp(-75, -110, v) + z,
+      );
       lightTarget.position.set(0, 0, z);
       lightTarget.updateMatrixWorld();
     }
     if (hemisphere.current)
-      hemisphere.current.intensity = T.MathUtils.lerp(1.2, 0.85, v);
+      hemisphere.current.intensity = T.MathUtils.lerp(0.4, 0.65, v);
   });
   return (
     <>
-      <Atmosphere night={night} river={river} progress={s.boat.progress} />
-      <PerformanceBudget quality={quality} />
+      <RealSky night={night} rotation={Math.PI} />
       <hemisphereLight
         ref={hemisphere}
         args={[
           night ? "#b6ccd6" : "#d9e4e2",
           night ? "#4d4740" : "#8c7757",
-          night ? 0.85 : 1.3,
+          night ? 0.65 : 0.4,
         ]}
       />
-      <ambientLight intensity={night ? 0.35 : 0.3} />
+      <ambientLight intensity={night ? 0.2 : 0.05} />
       <directionalLight
         ref={sun}
-        position={[35, 55, 25]}
-        intensity={night ? 0.9 : 3.3}
+        position={[-92, 15, -75]}
+        intensity={night ? 0.9 : 2.6}
         color={night ? "#8fa9cd" : "#ffe1ab"}
         castShadow={quality !== "low"}
         shadow-mapSize={[2048, 2048]}
@@ -1346,7 +1430,7 @@ function Scene({
         shadow-camera-right={70}
         shadow-camera-top={70}
         shadow-camera-bottom={-70}
-        shadow-camera-far={180}
+        shadow-camera-far={260}
         shadow-bias={-0.0004}
         shadow-normalBias={0.06}
       />
@@ -1374,8 +1458,11 @@ function Scene({
       ) : (
         <>
           <Landscape />
+          <ScenicBackdrop night={night} quality={quality} />
           <ReflectiveWater quality={quality} night={night} />
           <Forest phase={s.phase} />
+          <ForestFloor />
+          <Wildlife s={s} quality={quality} />
           <Village s={s} />
           <FloatingLeaves />
           <HarvestEffects s={s} />
@@ -1415,6 +1502,8 @@ function Scene({
         </>
       )}
       <WorldDetails s={s} river={river} />
+      <EnvironmentResponse s={s} river={river} quality={quality} />
+      <WoodlandAudio river={river} />
       <Player
         s={s}
         role={role}
@@ -1425,45 +1514,12 @@ function Scene({
       />
       {quality === "high" && (
         <EffectComposer multisampling={0}>
-          <Bloom intensity={0.45} luminanceThreshold={1.1} mipmapBlur />
-          <Vignette eskil={false} offset={0.22} darkness={0.32} />
+          <Bloom intensity={0.22} luminanceThreshold={1.3} mipmapBlur />
+          <Vignette eskil={false} offset={0.22} darkness={0.16} />
         </EffectComposer>
       )}
     </>
   );
-}
-function PerformanceBudget({ quality }: { quality: string }) {
-  const { setDpr, gl } = useThree();
-  const stats = useRef({ time: 0, frames: 0, fast: 0, warm: 0 });
-  useFrame((_, dt) => {
-    const q = stats.current;
-    q.warm += dt;
-    if (document.hidden || dt > 0.25 || q.warm < 4) return;
-    q.time += dt;
-    q.frames++;
-    if (q.time < 2) return;
-    const fps = q.frames / q.time,
-      max = quality === "low" ? 1 : Math.min(1.5, window.devicePixelRatio);
-    const current = gl.getPixelRatio();
-    if (fps < 38 && current > 0.8) {
-      setDpr(Math.max(0.8, current - 0.15));
-      q.fast = 0;
-    } else if (fps > 57) {
-      q.fast++;
-      if (q.fast >= 3 && current < max) {
-        setDpr(Math.min(max, current + 0.1));
-        q.fast = 0;
-      }
-    } else q.fast = 0;
-    if (import.meta.env.DEV)
-      Object.assign((window as any).__autumn, {
-        fps: Math.round(fps),
-        pixelRatio: gl.getPixelRatio(),
-      });
-    q.time = 0;
-    q.frames = 0;
-  });
-  return null;
 }
 export default function World(props: {
   s: State;
@@ -1473,25 +1529,39 @@ export default function World(props: {
   quality: string;
   focus?: "journal" | "craft" | "chapter" | null;
 }) {
+  const [dpr, setDpr] = useState(1);
+  const [frameloop, setFrameloop] = useState<"always" | "never">("always");
   return (
     <Canvas
       shadows={props.quality !== "low" ? "percentage" : false}
-      dpr={props.quality === "low" ? 1 : [1, 1.5]}
+      dpr={dpr}
+      frameloop={frameloop}
       camera={{ fov: 70, near: 0.08, far: 350 }}
       gl={{
         antialias: true,
         alpha: false,
         powerPreference: "high-performance",
       }}
-      onCreated={({ gl }) => {
+      onCreated={({ gl, scene, camera }) => {
         if (import.meta.env.DEV)
-          Object.assign((window as any).__autumn, { renderInfo: gl.info });
+          Object.assign((window as any).__autumn, {
+            renderInfo: gl.info,
+            scene,
+            camera,
+            renderer: gl,
+          });
         gl.domElement.setAttribute(
           "aria-label",
           "First-person Bramblewick game world",
         );
       }}
     >
+      <RenderBudget
+        scenePhase={props.s.phase}
+        quality={props.quality}
+        onDprChange={setDpr}
+        onFrameloopChange={setFrameloop}
+      />
       <Suspense fallback={null}>
         <Scene {...props} />
       </Suspense>

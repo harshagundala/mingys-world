@@ -67,8 +67,13 @@ class Soundscape {
       this.note(n, 0.8, 0.28, "sine", i * 0.09),
     );
   }
-  step() {
-    this.note(65 + Math.random() * 20, 0.07, 0.09, "triangle");
+  step(surface: "wood" | "gravel" | "leaves" = "leaves") {
+    this.note(
+      (surface === "wood" ? 110 : 65) + Math.random() * 20,
+      surface === "wood" ? 0.1 : 0.07,
+      0.09,
+      "triangle",
+    );
     if (!this.enabled || !this.ctx || !this.gain) return;
     if (!this.noise) {
       this.noise = this.ctx.createBuffer(
@@ -86,8 +91,9 @@ class Soundscape {
     source.buffer = this.noise;
     source.playbackRate.value = 0.8 + Math.random() * 0.4;
     filter.type = "lowpass";
-    filter.frequency.value = 1700;
-    gain.gain.value = 0.11;
+    filter.frequency.value =
+      surface === "wood" ? 900 : surface === "gravel" ? 2400 : 3700;
+    gain.gain.value = surface === "wood" ? 0.06 : 0.11;
     source.connect(filter);
     filter.connect(gain);
     gain.connect(this.gain);

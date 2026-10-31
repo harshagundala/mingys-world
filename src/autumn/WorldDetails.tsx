@@ -3,8 +3,11 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as T from "three";
 import { Reflector } from "three/addons/objects/Reflector.js";
 import type { State } from "../../server/autumn/rules";
+import { StaticGeometry } from "./StaticGeometry";
 import { rand, towers, lanternStands, props } from "./content";
 import { Box, Pole, Sign } from "./Models";
+import { pbrTextures } from "./materials";
+import { renderBudget } from "./RenderBudget";
 
 function useReducedMotion() {
   const [reduced, setReduced] = useState(
@@ -60,12 +63,13 @@ const waterShader = {
       vec3 deep=mix(vec3(.018,.12,.13),vec3(.012,.045,.065),night);
       vec3 body=mix(deep,vec3(.12,.29,.25),(.5+.5*a)*.19);
       vec3 col=mix(body,reflected,clamp(fresnel,.18,.86));
-      vec3 sun=normalize(vec3(.5,.8,.4));
+      vec3 sun=normalize(mix(vec3(-.769,.123,-.627),vec3(.475,.358,-.805),night));
       float spec=pow(max(dot(reflect(-sun,normal),view),0.),180.);
       col+=mix(vec3(1.5,1.05,.45),vec3(.32,.46,.6),night)*spec*.7;
-      float edge=mix(10.-abs(localPosition.y),17.-abs(localPosition.x),river);
+      float edge=mix(10.-abs(localPosition.y),19.-abs(localPosition.x),river);
       float foam=(1.-smoothstep(.05,.75,edge))*(.45+.55*sin(edge*14.-time*1.8+a*2.));
-      col=mix(col,vec3(.55,.67,.53),clamp(foam,0.,.42));
+      float shorelineBreak=.45+.55*sin(p.x*2.9+sin(p.y*1.7)+time*.21);
+      col=mix(col,mix(vec3(.38,.44,.35),vec3(.035,.06,.07),night),clamp(foam*shorelineBreak,0.,.22));
       gl_FragColor=vec4(col,1.);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
@@ -84,9 +88,9 @@ export function ReflectiveWater({
   night?: boolean;
 }) {
   const reflector = useMemo(() => {
-    const geometry = new T.PlaneGeometry(river ? 34 : 320, river ? 1800 : 20);
+    const geometry = new T.PlaneGeometry(river ? 38 : 320, river ? 1800 : 20);
     const resolution =
-      quality === "low" ? 256 : quality === "medium" ? 512 : 1024;
+      quality === "low" ? 256 : quality === "medium" ? 512 : 768;
     const water = new Reflector(geometry, {
       textureWidth: resolution,
       textureHeight: resolution,
@@ -111,7 +115,12 @@ export function ReflectiveWater({
       // Reflection cameras do not recursively capture another reflective surface.
       if (camera.userData.autumnReflection) return;
       const now = performance.now();
-      if (now - lastRender < (quality === "low" ? 100 : 40)) return;
+      const distance = river ? 0 : Math.abs(camera.position.z + 68);
+      const interval = Math.max(
+        renderBudget.reflectionIntervalMs,
+        distance > 75 ? 180 : distance > 40 ? 90 : 0,
+      );
+      if (now - lastRender < interval) return;
       if (!river && Math.abs(camera.position.z + 68) > 115) return;
       lastRender = now;
       const local = scene.getObjectByName("local-avatar"),
@@ -152,7 +161,7 @@ export function ReflectiveWater({
 }
 
 function PathStones() {
-  const geometry = useMemo(() => new T.IcosahedronGeometry(1, 1), []);
+  const geometry = useMemo(() => new T.IcosahedronGeometry(1, 2), []);
   const meshes = useRef<T.InstancedMesh>(null);
   useEffect(() => {
     const m = meshes.current;
@@ -164,16 +173,16 @@ function PathStones() {
       const x = (rand(i + 3000) - 0.5) * 6.3;
       o.position.set(x, 0.022, z);
       o.scale.set(
-        0.06 + rand(i) * 0.1,
+        0.035 + rand(i) * 0.07,
         0.018 + rand(i + 4) * 0.025,
-        0.07 + rand(i + 5) * 0.1,
+        0.04 + rand(i + 5) * 0.06,
       );
       o.rotation.set(0, rand(i + 200) * 6.28, 0);
       o.updateMatrix();
       m.setMatrixAt(i, o.matrix);
       m.setColorAt(
         i,
-        c.set(["#a39270", "#c2b394", "#847b62", "#d0c4a7"][i % 4]),
+        c.set(["#aaa695", "#c2bca9", "#9d9a8b", "#b4b4a7"][i % 4]),
       );
     }
     m.instanceMatrix.needsUpdate = true;
@@ -186,7 +195,7 @@ function PathStones() {
       args={[geometry, undefined, 1100]}
       receiveShadow
     >
-      <meshStandardMaterial roughness={1} />
+      <meshStandardMaterial {...pbrTextures("stone")} roughness={1} />
     </instancedMesh>
   );
 }
@@ -260,7 +269,7 @@ function Riverbank({
         receiveShadow
       >
         <icosahedronGeometry args={[1, 1]} />
-        <meshStandardMaterial roughness={0.95} />
+        <meshStandardMaterial {...pbrTextures("stone")} roughness={0.95} />
       </instancedMesh>
     </>
   );
@@ -403,7 +412,7 @@ function Bunting() {
 }
 function VillageFurniture() {
   return (
-    <>
+    <StaticGeometry>
       <group position={[-8, 0, 39]} rotation={[0, 0.3, 0]}>
         {[-0.32, 0, 0.32].map((z) => (
           <Box key={z} p={[0, 0.53, z]} s={[2.8, 0.09, 0.24]} color="#8a6544" />
@@ -463,15 +472,17 @@ function VillageFurniture() {
           ))}
         </group>
       ))}
-    </>
+    </StaticGeometry>
   );
 }
 function Firelight({ night }: { night: boolean }) {
-  const ref = useRef<T.ShaderMaterial>(null),
+  const materials = useRef<(T.ShaderMaterial | null)[]>([]),
     light = useRef<T.PointLight>(null);
   const uniforms = useMemo(() => ({ time: { value: 0 } }), []);
   useFrame(({ clock }) => {
-    uniforms.time.value = clock.elapsedTime;
+    materials.current.forEach((m) => {
+      if (m) m.uniforms.time.value = clock.elapsedTime;
+    });
     if (light.current)
       light.current.intensity =
         (night ? 5 : 2.5) +
@@ -480,7 +491,7 @@ function Firelight({ night }: { night: boolean }) {
   });
   return (
     <group position={[0, 0.12, 13]}>
-      {[0, Math.PI / 2].map((rotation) => (
+      {[0, Math.PI / 2].map((rotation, i) => (
         <mesh
           key={rotation}
           position={[0, 0.65, 0]}
@@ -488,7 +499,9 @@ function Firelight({ night }: { night: boolean }) {
         >
           <planeGeometry args={[1.15, 1.65]} />
           <shaderMaterial
-            ref={ref}
+            ref={(m) => {
+              materials.current[i] = m;
+            }}
             uniforms={uniforms}
             transparent
             depthWrite={false}
@@ -529,14 +542,6 @@ function ProgressMagic({ s }: { s: State }) {
     };
     if (s.phase !== old.phase) add(0, 13, "#f5d69a");
     if (s.bridge > old.bridge) add(0, -58 - s.bridge * 2.5);
-    if (s.order > old.order) add(0, 20, "#b4e4b0");
-    for (const id of s.collected)
-      if (!old.collected.includes(id)) {
-        const prop = props.find((p) => p.id === id);
-        if (prop)
-          add(prop.x, prop.z, prop.kind === "wood" ? "#d6b17d" : "#e8b757");
-      }
-    if (s.dish?.cooked && !old.dish?.cooked) add(5, 20, "#f9dda0");
     for (const i of s.towers)
       if (!old.towers.includes(i)) add(towers[i].x, towers[i].z, "#a5e6e1");
     for (const l of lanternStands)
@@ -547,7 +552,7 @@ function ProgressMagic({ s }: { s: State }) {
   useFrame(() => {
     if (!mesh.current) return;
     const now = performance.now();
-    bursts.current = bursts.current.filter((b) => now - b.at < 4200);
+    bursts.current = bursts.current.filter((b) => now - b.at < 2800);
     for (let i = 0; i < 240; i++) {
       const burst = bursts.current[Math.floor(i / 60)];
       if (!burst) {
@@ -559,14 +564,14 @@ function ProgressMagic({ s }: { s: State }) {
       const t = (now - burst.at) / 1000,
         seed = i % 60,
         a = seed * 2.399 + t * 0.4,
-        r = Math.sqrt(seed / 60) * (1 + t * 2.5);
+        r = Math.sqrt(seed / 60) * (0.8 + t * 1.4);
       o.position.set(
         burst.x + Math.cos(a) * r,
         0.25 + t * (1 + rand(seed) * 1.1) - t * t * 0.12,
         burst.z + Math.sin(a) * r,
       );
       o.scale.setScalar(
-        0.025 + Math.sin(Math.min(1, t / 4.2) * Math.PI) * 0.065,
+        0.012 + Math.sin(Math.min(1, t / 2.8) * Math.PI) * 0.035,
       );
       o.rotation.set(t + seed, t * 2, seed);
       o.updateMatrix();
@@ -595,9 +600,11 @@ function SkyRibbon({ phase }: { phase: number }) {
     [],
   );
   useFrame(({ clock }, dt) => {
-    uniforms.time.value = clock.elapsedTime;
-    uniforms.strength.value = T.MathUtils.damp(
-      uniforms.strength.value,
+    const live = material.current?.uniforms;
+    if (!live) return;
+    live.time.value = clock.elapsedTime;
+    live.strength.value = T.MathUtils.damp(
+      live.strength.value,
       phase >= 8 ? 0.7 : phase >= 6 ? 0.18 : 0,
       0.32,
       dt,
@@ -727,7 +734,7 @@ function Architecture() {
         receiveShadow
       >
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial roughness={0.87} />
+        <meshStandardMaterial {...pbrTextures("stone")} roughness={0.96} />
       </instancedMesh>
       <instancedMesh
         ref={details}
@@ -736,7 +743,7 @@ function Architecture() {
         receiveShadow
       >
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial roughness={0.82} />
+        <meshStandardMaterial {...pbrTextures("wood")} roughness={0.88} />
       </instancedMesh>
     </>
   );

@@ -3,6 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import * as T from "three";
 import { rand } from "./content";
 import { net } from "./network";
+import { pbrTextures } from "./materials";
 
 // One shader update moves every leaf, rather than rebuilding thousands of instance matrices.
 export function WindMaterial({
@@ -66,13 +67,13 @@ export function WindMaterial({
         shader.fragmentShader = shader.fragmentShader.replace(
           "#include <color_fragment>",
           `#include <color_fragment>
-        diffuseColor.rgb*=mix(vec3(.84,1.,.84),vec3(1.1,.83,.59),season*.65);
+        diffuseColor.rgb*=mix(vec3(.84,1.,.84),vec3(1.04,.9,.76),season*.5);
         diffuseColor.rgb*=.89+leafLight*.22;`,
         );
         shader.fragmentShader = shader.fragmentShader.replace(
           "#include <emissivemap_fragment>",
           `#include <emissivemap_fragment>
-        totalEmissiveRadiance+=diffuseColor.rgb*${grass ? ".025" : ".09"}*(.45+leafLight*.55);`,
+        totalEmissiveRadiance+=diffuseColor.rgb*${grass ? ".018" : ".035"}*(.45+leafLight*.55);`,
         );
       }}
       customProgramCacheKey={() => (grass ? "grass-wind-v2" : "leaf-wind-v2")}
@@ -82,8 +83,20 @@ export function WindMaterial({
 
 export function Landscape() {
   const material = useMemo(() => {
-    const m = new T.MeshStandardMaterial({ color: "#a8a17a", roughness: 0.97 });
+    const ground = pbrTextures("ground"),
+      path = pbrTextures("path");
+    const m = new T.MeshStandardMaterial({
+      color: "#ffffff",
+      roughness: 0.94,
+      ...ground,
+      normalScale: new T.Vector2(0.65, 0.65),
+    });
     m.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, {
+        pathColor: { value: path.map },
+        pathNormal: { value: path.normalMap },
+        pathRough: { value: path.roughnessMap },
+      });
       shader.vertexShader = "varying vec3 landPos;\n" + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace(
         "#include <worldpos_vertex>",
@@ -91,33 +104,38 @@ export function Landscape() {
       );
       shader.fragmentShader =
         `varying vec3 landPos;
+        uniform sampler2D pathColor, pathNormal, pathRough;
         float hashLand(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
         float noiseLand(vec2 p){vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f);return mix(mix(hashLand(i),hashLand(i+vec2(1,0)),f.x),mix(hashLand(i+vec2(0,1)),hashLand(i+vec2(1,1)),f.x),f.y);}
         float pathLand(vec2 p,vec2 a,vec2 b){vec2 pa=p-a,ba=b-a;return length(pa-ba*clamp(dot(pa,ba)/dot(ba,ba),0.,1.));}
         ` + shader.fragmentShader;
       shader.fragmentShader = shader.fragmentShader.replace(
-        "#include <color_fragment>",
-        `#include <color_fragment>
-        vec2 p=landPos.xz;
-        float fine=noiseLand(p*34.);float grain=noiseLand(p*3.7);float broad=noiseLand(p*.13);
+        "#include <map_fragment>",
+        `vec2 p=landPos.xz;
+        vec2 landUv=vec2(p.x,-p.y)/1.8;
+        vec2 pathUv=vec2(p.x,-p.y)/2.2;
         float d=min(pathLand(p,vec2(0,-57),vec2(0,49)),min(pathLand(p,vec2(-33,-18),vec2(0,24)),pathLand(p,vec2(0,8),vec2(32,-28))));
         float edge=2.45+noiseLand(p*.75)*.8+sin(p.y*.4)*.15;
-        float path=1.-smoothstep(edge-.5,edge+.5,d);
-        vec3 grass=mix(vec3(.19,.26,.105),vec3(.38,.40,.19),broad);
-        vec3 dirt=mix(vec3(.38,.29,.17),vec3(.55,.43,.28),grain*.5+.5);
-        vec3 ground=mix(grass,dirt,path);
-        vec2 cell=floor(p*5.);float pebble=step(.83,hashLand(cell))*smoothstep(.36,.18,length(fract(p*5.)-.5));
-        ground+=pebble*.07+fine*.035;
-        float leaf=step(.93,hashLand(floor(p*2.8)))*(1.-smoothstep(.14,.27,length(fract(p*2.8)-.5)));
-        ground=mix(ground,vec3(.54,.22,.055),leaf*.65);
-        diffuseColor.rgb=ground*(.85+grain*.23);`,
+        float landBlend=1.-smoothstep(edge-.55,edge+.55,d);
+        vec3 soil=texture2D(map,landUv).rgb;
+        vec3 trail=texture2D(pathColor,pathUv).rgb;
+        // Photogrammetry at metre scale; low-frequency variation breaks up tiling.
+        float broad=noiseLand(p*.17);
+        diffuseColor.rgb*=mix(soil,trail,landBlend)*mix(.82,1.14,broad);`,
+      );
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <roughnessmap_fragment>",
+        `float roughnessFactor=roughness*mix(texture2D(roughnessMap,landUv).g,texture2D(pathRough,pathUv).g,landBlend);
+         roughnessFactor=max(.68,roughnessFactor);`,
       );
       shader.fragmentShader = shader.fragmentShader.replace(
         "#include <normal_fragment_maps>",
-        `#include <normal_fragment_maps>
-        normal=normalize(normal+vec3((noiseLand(landPos.xz*40.)-.5)*.13,0.,(noiseLand(landPos.xz*41.+3.)-.5)*.13));`,
+        `vec3 mapN=mix(texture2D(normalMap,landUv).xyz,texture2D(pathNormal,pathUv).xyz,landBlend)*2.-1.;
+         mapN.xy*=normalScale;
+         normal=normalize(tbn*mapN);`,
       );
     };
+    m.customProgramCacheKey = () => "photographic-trail-v1";
     return m;
   }, []);
   useEffect(() => () => material.dispose(), [material]);
@@ -147,7 +165,11 @@ export function Landscape() {
         <planeGeometry args={[270, 270]} />
       </mesh>
       <mesh geometry={mountains} receiveShadow>
-        <meshStandardMaterial color="#617365" roughness={1} />
+        <meshStandardMaterial
+          color="#71776a"
+          {...pbrTextures("ground", [120, 120])}
+          roughness={1}
+        />
       </mesh>
       <GroundScatter />
     </>
@@ -180,8 +202,8 @@ function GroundScatter() {
   }, []);
   return (
     <instancedMesh ref={ref} args={[undefined, undefined, 950]} receiveShadow>
-      <dodecahedronGeometry args={[1, 0]} />
-      <meshStandardMaterial roughness={0.96} />
+      <dodecahedronGeometry args={[1, 1]} />
+      <meshStandardMaterial {...pbrTextures("stone")} roughness={0.96} />
     </instancedMesh>
   );
 }

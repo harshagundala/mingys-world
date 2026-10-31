@@ -1,0 +1,44 @@
+[
+  {
+    "name": "wood",
+    "id": "wood_planks",
+    "source": "https://polyhaven.com/a/wood_planks",
+    "license": "CC0"
+  },
+  {
+    "name": "bark",
+    "id": "bark_brown_02",
+    "source": "https://polyhaven.com/a/bark_brown_02",
+    "license": "CC0"
+  },
+  {
+    "name": "plaster",
+    "id": "plastered_wall_02",
+    "source": "https://polyhaven.com/a/plastered_wall_02",
+    "license": "CC0"
+  },
+  {
+    "name": "stone",
+    "id": "rock_face",
+    "source": "https://polyhaven.com/a/rock_face",
+    "license": "CC0"
+  },
+  {
+    "name": "ground",
+    "id": "brown_mud_leaves_01",
+    "source": "https://polyhaven.com/a/brown_mud_leaves_01",
+    "license": "CC0"
+  },
+  {
+    "name": "path",
+    "id": "brown_mud_rocks_01",
+    "source": "https://polyhaven.com/a/brown_mud_rocks_01",
+    "license": "CC0"
+  },
+  {
+    "name": "sky",
+    "id": "kloppenheim_06_puresky",
+    "source": "https://polyhaven.com/a/kloppenheim_06_puresky",
+    "license": "CC0"
+  }
+]

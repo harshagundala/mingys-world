@@ -2,7 +2,11 @@ import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as T from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { WindMaterial } from "./Landscape";
+import { riverGroundHeight } from "./RiverTerrain";
+import { pbrTextures, instanceBarkUV } from "./materials";
+import { StaticGeometry } from "./StaticGeometry";
 import { rand, colors } from "./content";
 import type { Role } from "./content";
 export const mat = {
@@ -14,59 +18,67 @@ export const mat = {
   iron: "#303c3c",
   gold: "#e8ac55",
 };
-let timberTexture: T.CanvasTexture | null = null;
-function woodMap() {
-  if (timberTexture) return timberTexture;
-  const c = document.createElement("canvas");
-  c.width = 256;
-  c.height = 256;
-  const x = c.getContext("2d")!;
-  x.fillStyle = "#e4d7bc";
-  x.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 550; i++) {
-    x.strokeStyle = `rgba(53,34,24,${0.03 + rand(i) * 0.12})`;
-    x.lineWidth = 0.4 + rand(i + 33) * 1.8;
-    x.beginPath();
-    const y = rand(i + 8) * 256;
-    x.moveTo(0, y);
-    x.bezierCurveTo(
-      90,
-      y + rand(i + 17) * 5,
-      160,
-      y - rand(i + 21) * 7,
-      256,
-      y,
-    );
-    x.stroke();
+export type BoxSurface =
+  "wood" | "plaster" | "stone" | "metal" | "roof" | "ground";
+const boxGeometries = new Map<string, T.BufferGeometry>();
+function boxGeometry(size: number[]) {
+  const key = size.join(",");
+  let g = boxGeometries.get(key);
+  if (g) return g;
+  g = new RoundedBoxGeometry(
+    size[0],
+    size[1],
+    size[2],
+    2,
+    Math.min(0.025, Math.min(...size) * 0.13),
+  );
+  const p = g.attributes.position,
+    n = g.attributes.normal,
+    uv = g.attributes.uv;
+  for (let i = 0; i < p.count; i++) {
+    const x = Math.abs(n.getX(i)),
+      y = Math.abs(n.getY(i)),
+      z = Math.abs(n.getZ(i));
+    // Grain follows the longer face dimension: upright posts stay upright,
+    // while beams and planks run along their length.
+    const axes = y > x && y > z ? [0, 2] : x > z ? [2, 1] : [0, 1];
+    if (size[axes[0]] < size[axes[1]]) axes.reverse();
+    const values = [p.getX(i), p.getY(i), p.getZ(i)];
+    uv.setXY(i, values[axes[0]] * 0.65, values[axes[1]] * 0.65);
   }
-  for (let i = 0; i < 4; i++) {
-    x.fillStyle = "#5f4e3d22";
-    x.fillRect(0, i * 64, 256, 1);
-  }
-  timberTexture = new T.CanvasTexture(c);
-  timberTexture.colorSpace = T.SRGBColorSpace;
-  timberTexture.wrapS = timberTexture.wrapT = T.RepeatWrapping;
-  timberTexture.anisotropy = 4;
-  return timberTexture;
+  uv.needsUpdate = true;
+  boxGeometries.set(key, g);
+  return g;
 }
-const roundedBox = new RoundedBoxGeometry(1, 1, 1, 2, 0.035);
 const boxMaterials = new Map<string, T.MeshStandardMaterial>();
-function surface(color: string, glow: number) {
-  const key = color + glow;
+function surface(color: string, glow: number, explicit?: BoxSurface) {
+  const key = color + glow + explicit;
   let material = boxMaterials.get(key);
   if (!material) {
-    const c = new T.Color(color),
-      metal = [mat.iron, mat.gold, "#77817e", "#a5afa4", "#566665"].includes(
-        color,
+    const c = new T.Color(color);
+    const metal =
+      explicit === "metal" ||
+      [mat.iron, mat.gold, "#77817e", "#a5afa4", "#566665"].includes(color);
+    const kind =
+      explicit ||
+      (!metal && c.r > c.b * 1.15 && c.g < c.r * 0.95 ? "wood" : undefined);
+    const texture =
+      kind === "roof" ? "stone" : kind === "metal" ? undefined : kind;
+    const tint = c.clone();
+    if (texture)
+      tint.lerp(
+        new T.Color("#ffffff"),
+        kind === "roof" ? 0.05 : kind === "plaster" ? 0.72 : 0.65,
       );
-    const wood = !metal && c.r > c.b * 1.15 && c.g < c.r * 0.95;
     material = new T.MeshStandardMaterial({
-      color,
-      map: wood && !glow ? woodMap() : null,
-      bumpMap: wood && !glow ? woodMap() : null,
-      bumpScale: 0.025,
-      roughness: metal ? 0.38 : 0.86,
-      metalness: metal ? 0.55 : 0,
+      color: tint,
+      ...(texture && !glow ? pbrTextures(texture) : {}),
+      normalScale: new T.Vector2(
+        kind === "plaster" ? 0.3 : 0.55,
+        kind === "plaster" ? 0.3 : 0.55,
+      ),
+      roughness: metal ? 0.34 : kind === "roof" ? 0.82 : 0.92,
+      metalness: metal ? 0.62 : 0,
       emissive: color,
       emissiveIntensity: glow,
     });
@@ -75,7 +87,7 @@ function surface(color: string, glow: number) {
   return material;
 }
 let paperTexture: T.CanvasTexture | null = null;
-function paperMap() {
+export function paperMap() {
   if (paperTexture) return paperTexture;
   const c = document.createElement("canvas");
   c.width = c.height = 128;
@@ -100,25 +112,43 @@ export function Box({
   color = mat.wood,
   rot = [0, 0, 0],
   glow = 0,
+  material,
 }: {
   p?: number[];
   s?: number[];
   color?: string;
   rot?: number[];
   glow?: number;
+  material?: BoxSurface;
 }) {
   return (
     <mesh
       position={p as any}
       rotation={rot as any}
-      scale={s as any}
-      geometry={roundedBox}
-      material={surface(color, glow)}
+      geometry={boxGeometry(s)}
+      material={surface(color, glow, material)}
       castShadow
       receiveShadow
       dispose={null}
     />
   );
+}
+const orbGeometry = new T.SphereGeometry(1, 20, 14);
+const orbMaterials = new Map<string, T.MeshStandardMaterial>();
+function orbMaterial(color: string, glow: number) {
+  const key = `${color}:${glow}`;
+  let material = orbMaterials.get(key);
+  if (!material) {
+    // Skin, fruit and cloth retain their original color; no architectural PBR heuristic.
+    material = new T.MeshStandardMaterial({
+      color,
+      roughness: 0.75,
+      emissive: color,
+      emissiveIntensity: glow,
+    });
+    orbMaterials.set(key, material);
+  }
+  return material;
 }
 export function Orb({
   p = [0, 0, 0],
@@ -132,16 +162,28 @@ export function Orb({
   glow?: number;
 }) {
   return (
-    <mesh position={p as any} scale={s as any} castShadow>
-      <sphereGeometry args={[1, 20, 14]} />
-      <meshStandardMaterial
-        color={color}
-        roughness={0.75}
-        emissive={color}
-        emissiveIntensity={glow}
-      />
-    </mesh>
+    <mesh
+      position={p as any}
+      scale={s as any}
+      geometry={orbGeometry}
+      material={orbMaterial(color, glow)}
+      castShadow
+      dispose={null}
+    />
   );
+}
+const poleGeometries = new Map<string, T.CylinderGeometry>();
+function poleGeometry(r: number, h: number) {
+  const key = `${r}:${h}`;
+  let geometry = poleGeometries.get(key);
+  if (!geometry) {
+    geometry = new T.CylinderGeometry(r * 0.85, r, h, 14);
+    const uv = geometry.attributes.uv;
+    for (let i = 0; i < uv.count; i++)
+      uv.setXY(i, uv.getX(i) * Math.PI * 2 * r * 0.65, uv.getY(i) * h * 0.65);
+    poleGeometries.set(key, geometry);
+  }
+  return geometry;
 }
 export function Pole({
   p = [0, 0, 0],
@@ -160,12 +202,12 @@ export function Pole({
     <mesh
       position={p as any}
       rotation={rotation as any}
+      geometry={poleGeometry(r, h)}
+      material={surface(color, 0)}
       castShadow
       receiveShadow
-    >
-      <cylinderGeometry args={[r * 0.85, r, h, 8]} />
-      <meshStandardMaterial color={color} roughness={0.85} />
-    </mesh>
+      dispose={null}
+    />
   );
 }
 export function Sign({
@@ -207,6 +249,65 @@ export function Sign({
     </mesh>
   );
 }
+let lanternFrame: T.BufferGeometry | undefined;
+export function lanternFrameGeometry() {
+  if (!lanternFrame) {
+    const pieces: T.BufferGeometry[] = [
+      poleGeometry(0.26, 0.06).clone().translate(0, 0.12, 0),
+      poleGeometry(0.23, 0.06).clone().translate(0, 0.67, 0),
+      new T.TorusGeometry(0.11, 0.018, 6, 16).translate(0, 0.8, 0),
+    ];
+    for (let i = 0; i < 4; i++)
+      pieces.push(
+        poleGeometry(0.012, 0.48)
+          .clone()
+          .translate(
+            Math.cos((i * Math.PI) / 2) * 0.24,
+            0.4,
+            Math.sin((i * Math.PI) / 2) * 0.24,
+          ),
+      );
+    // A single material means the entire iron frame is one draw call.
+    lanternFrame = mergeGeometries(pieces, false)!;
+    pieces.forEach((geometry) => geometry.dispose());
+  }
+  return lanternFrame;
+}
+export function lanternFrameMaterial() {
+  return surface(mat.iron, 0, "metal");
+}
+const lanternBodies = new Map<number, T.BufferGeometry>();
+const lanternPaperMaterials = new Map<string, T.MeshStandardMaterial>();
+function lanternPaperMaterial(color: string, lit: boolean) {
+  const key = `${color}:${lit}`;
+  let material = lanternPaperMaterials.get(key);
+  if (!material) {
+    material = new T.MeshStandardMaterial({
+      color: lit ? color : "#b59c76",
+      emissive: color,
+      map: paperMap(),
+      emissiveMap: paperMap(),
+      emissiveIntensity: lit ? 0.65 : 0,
+      roughness: 0.8,
+    });
+    lanternPaperMaterials.set(key, material);
+  }
+  return material;
+}
+export function lanternBodyGeometry(shape = 0) {
+  const key = shape === 1 ? 1 : shape === 2 ? 2 : 0;
+  let geometry = lanternBodies.get(key);
+  if (!geometry) {
+    geometry =
+      key === 1
+        ? new T.SphereGeometry(0.25, 12, 10)
+        : key === 2
+          ? new T.CylinderGeometry(0.2, 0.28, 0.46, 6)
+          : new T.CylinderGeometry(0.23, 0.23, 0.46, 12);
+    lanternBodies.set(key, geometry);
+  }
+  return geometry;
+}
 export function Lantern({
   position = [0, 0, 0],
   color = "#ffcc75",
@@ -222,42 +323,20 @@ export function Lantern({
 }) {
   return (
     <group position={position as any} scale={scale}>
-      <mesh position={[0, 0.4, 0]} castShadow>
-        {shape === 1 ? (
-          <sphereGeometry args={[0.25, 12, 10]} />
-        ) : shape === 2 ? (
-          <cylinderGeometry args={[0.2, 0.28, 0.46, 6]} />
-        ) : (
-          <cylinderGeometry args={[0.23, 0.23, 0.46, 12]} />
-        )}
-        <meshStandardMaterial
-          color={lit ? color : "#b59c76"}
-          emissive={color}
-          map={paperMap()}
-          emissiveMap={paperMap()}
-          emissiveIntensity={lit ? 0.65 : 0}
-          roughness={0.8}
-        />
-      </mesh>
-      <Pole p={[0, 0.12, 0]} r={0.26} h={0.06} color={mat.iron} />
-      <Pole p={[0, 0.67, 0]} r={0.23} h={0.06} color={mat.iron} />
-      <mesh position={[0, 0.8, 0]}>
-        <torusGeometry args={[0.11, 0.018, 6, 16]} />
-        <meshStandardMaterial color={mat.iron} />
-      </mesh>
-      {[0, 1, 2, 3].map((i) => (
-        <Pole
-          key={i}
-          p={[
-            Math.cos((i * Math.PI) / 2) * 0.24,
-            0.4,
-            Math.sin((i * Math.PI) / 2) * 0.24,
-          ]}
-          r={0.012}
-          h={0.48}
-          color={mat.iron}
-        />
-      ))}
+      <mesh
+        position={[0, 0.4, 0]}
+        geometry={lanternBodyGeometry(shape)}
+        material={lanternPaperMaterial(color, lit)}
+        castShadow
+        dispose={null}
+      />
+      <mesh
+        geometry={lanternFrameGeometry()}
+        material={lanternFrameMaterial()}
+        castShadow
+        receiveShadow
+        dispose={null}
+      />
     </group>
   );
 }
@@ -333,52 +412,80 @@ export function Cottage({
 }) {
   return (
     <group position={position as any} rotation={[0, rotation, 0]} scale={scale}>
-      <Box p={[0, 1.6, 0]} s={[6, 3.2, 4.8]} color={color} />
-      <Box p={[0, 0.2, 0]} s={[6.3, 0.4, 5.1]} color={mat.stone} />
-      {[-1, 1].map((side) => (
-        <group key={side}>
-          <Box
-            p={[side * 1.65, 3.8, 0]}
-            s={[3.9, 0.22, 5.9]}
-            color={mat.roof}
-            rot={[0, 0, side * -0.52]}
-          />
-          {[-2, -1, 0, 1, 2].map((i) => (
+      <StaticGeometry revision={color}>
+        <Box
+          p={[0, 1.6, 0]}
+          s={[6, 3.2, 4.8]}
+          color={color}
+          material="plaster"
+        />
+        <Box
+          p={[0, 0.2, 0]}
+          s={[6.3, 0.4, 5.1]}
+          color={mat.stone}
+          material="stone"
+        />
+        {[-1, 1].map((side) => (
+          <group key={side}>
             <Box
-              key={i}
-              p={[side * 1.65, 3.82, i * 1.06]}
-              s={[3.95, 0.1, 0.035]}
-              color="#65706b"
+              p={[side * 1.65, 3.8, 0]}
+              s={[3.9, 0.22, 5.9]}
+              color={mat.roof}
+              material="roof"
               rot={[0, 0, side * -0.52]}
             />
-          ))}
-        </group>
-      ))}
-      <Box p={[0, 2.8, 2.44]} s={[6, 0.17, 0.17]} />
-      {[-2.85, 0, 2.85].map((x) => (
-        <Box key={x} p={[x, 1.7, 2.45]} s={[0.18, 3, 0.2]} />
-      ))}
-      <Box p={[0, 1.05, 2.47]} s={[1.18, 2.1, 0.16]} color="#385b58" />
-      <Orb p={[0.38, 1.07, 2.6]} s={[0.045, 0.045, 0.045]} color="#dca84f" />
-      {[-1.8, 1.8].map((x) => (
-        <group key={x}>
-          <Box p={[x, 1.85, 2.5]} s={[1.22, 1.36, 0.12]} color="#4e483b" />
-          <Box
-            p={[x, 1.85, 2.58]}
-            s={[1, 1.15, 0.06]}
-            color="#ffc879"
-            glow={1.2}
-          />
-          <Box p={[x, 1.85, 2.64]} s={[0.06, 1.25, 0.05]} />
-          <Box p={[x, 1.85, 2.64]} s={[1.1, 0.06, 0.05]} />
-          <Box p={[x, 1.1, 2.7]} s={[1.5, 0.18, 0.55]} color="#79523b" />
-          <Orb p={[x, 1.28, 2.8]} s={[0.6, 0.15, 0.17]} color="#7b8c51" />
-        </group>
-      ))}
-      <Box p={[1.8, 4.6, -0.8]} s={[0.7, 2.2, 0.8]} color="#8d8070" />
-      <Box p={[1.8, 5.7, -0.8]} s={[0.9, 0.18, 1]} color="#75695e" />
-      <Box p={[0, 0.12, 3.2]} s={[1.8, 0.24, 1.4]} color="#b1a08a" />
-      <Lantern position={[2.6, 1.3, 2.9]} scale={0.7} />
+            {[-2, -1, 0, 1, 2].map((i) => (
+              <Box
+                key={i}
+                p={[side * 1.65, 3.82, i * 1.06]}
+                s={[3.95, 0.1, 0.035]}
+                color="#65706b"
+                rot={[0, 0, side * -0.52]}
+              />
+            ))}
+          </group>
+        ))}
+        <Box p={[0, 2.8, 2.44]} s={[6, 0.17, 0.17]} />
+        {[-2.85, 0, 2.85].map((x) => (
+          <Box key={x} p={[x, 1.7, 2.45]} s={[0.18, 3, 0.2]} />
+        ))}
+        <Box p={[0, 1.05, 2.47]} s={[1.18, 2.1, 0.16]} color="#385b58" />
+        <Orb p={[0.38, 1.07, 2.6]} s={[0.045, 0.045, 0.045]} color="#dca84f" />
+        {[-1.8, 1.8].map((x) => (
+          <group key={x}>
+            <Box p={[x, 1.85, 2.5]} s={[1.22, 1.36, 0.12]} color="#4e483b" />
+            <Box
+              p={[x, 1.85, 2.58]}
+              s={[1, 1.15, 0.06]}
+              color="#ffc879"
+              glow={1.2}
+            />
+            <Box p={[x, 1.85, 2.64]} s={[0.06, 1.25, 0.05]} />
+            <Box p={[x, 1.85, 2.64]} s={[1.1, 0.06, 0.05]} />
+            <Box p={[x, 1.1, 2.7]} s={[1.5, 0.18, 0.55]} color="#79523b" />
+            <Orb p={[x, 1.28, 2.8]} s={[0.6, 0.15, 0.17]} color="#7b8c51" />
+          </group>
+        ))}
+        <Box
+          p={[1.8, 4.6, -0.8]}
+          s={[0.7, 2.2, 0.8]}
+          color="#8d8070"
+          material="stone"
+        />
+        <Box
+          p={[1.8, 5.7, -0.8]}
+          s={[0.9, 0.18, 1]}
+          color="#75695e"
+          material="stone"
+        />
+        <Box
+          p={[0, 0.12, 3.2]}
+          s={[1.8, 0.24, 1.4]}
+          color="#b1a08a"
+          material="stone"
+        />
+        <Lantern position={[2.6, 1.3, 2.9]} scale={0.7} />
+      </StaticGeometry>
     </group>
   );
 }
@@ -516,6 +623,18 @@ export function Avatar({
     </group>
   );
 }
+let foliageTexture: T.Texture | undefined;
+function autumnFoliageTexture() {
+  if (!foliageTexture) {
+    foliageTexture = new T.TextureLoader().load(
+      "/textures/autumn-leaf-cluster.webp",
+    );
+    foliageTexture.colorSpace = T.SRGBColorSpace;
+    foliageTexture.anisotropy = 4;
+  }
+  return foliageTexture;
+}
+
 export function Forest({
   phase = 0,
   river = false,
@@ -534,7 +653,7 @@ export function Forest({
       for (let i = 0; i < 220; i++)
         trees.push({
           x: (i % 2 ? 1 : -1) * (20 + rand(i + 99) * 22),
-          z: 70 - Math.floor(i / 2) * 10,
+          z: 70 - Math.floor(i / 2) * 10 + (rand(i + 300) - 0.5) * 7,
           s: 1 + rand(i + 21) * 1.5,
         });
       return trees;
@@ -557,7 +676,17 @@ export function Forest({
         s: 0.8 + rand(i + 77) * 0.8,
       });
     }
-    return trees.filter((t) => !(t.z < -58 && t.z > -79));
+    return trees.filter(
+      (t) =>
+        !(t.z < -58 && t.z > -79) &&
+        ![
+          [-45, -8],
+          [-49, -13],
+          [-18, 8],
+          [-20, 11],
+          [-15, 11],
+        ].some(([x, z]) => Math.hypot(t.x - x, t.z - z) < 5),
+    );
   }, [river]);
   useMemo(() => {}, []);
   // Matrices are initialized before the first displayed frame.
@@ -576,7 +705,8 @@ export function Forest({
     const o = new T.Object3D(),
       c = new T.Color();
     data.forEach((t, i) => {
-      o.position.set(t.x, t.s * 2.5, t.z);
+      const baseY = river ? riverGroundHeight(t.x, t.z) : 0;
+      o.position.set(t.x, baseY + t.s * 2.5, t.z);
       o.scale.set(t.s * 0.3, t.s * 5, t.s * 0.3);
       o.rotation.set(0, rand(i) * 6, 0.04);
       o.updateMatrix();
@@ -585,11 +715,12 @@ export function Forest({
         const angle = j * 2.399 + rand(i) * 6;
         o.position.set(
           t.x + Math.cos(angle) * t.s * 0.6,
-          t.s * 3.8,
+          baseY + t.s * 3.8,
           t.z + Math.sin(angle) * t.s * 0.6,
         );
         o.scale.set(t.s * 0.1, t.s * 2.8, t.s * 0.1);
-        o.rotation.set(Math.sin(angle) * 0.55, 0, Math.cos(angle) * 0.55);
+        // Forks grow outward from the trunk; the negative Z angle keeps their roots attached.
+        o.rotation.set(Math.sin(angle) * 0.55, 0, -Math.cos(angle) * 0.55);
         o.updateMatrix();
         branches.current!.setMatrixAt(i * 3 + j, o.matrix);
       }
@@ -599,7 +730,7 @@ export function Forest({
         const y = 4.8 + rand(i * 13 + j) * 2.6;
         o.position.set(
           t.x + Math.cos(a) * t.s * r,
-          t.s * y,
+          baseY + t.s * y,
           t.z + Math.sin(a) * t.s * r,
         );
         o.scale.set(
@@ -611,10 +742,10 @@ export function Forest({
         o.updateMatrix();
         canopy.current!.setMatrixAt(i * 22 + j, o.matrix);
         c.set(
-          ["#bd813e", "#cba252", "#b66540", "#a85337", "#b5a36b", "#7f8b58"][
+          ["#f4eddf", "#eee4cc", "#e5ddce", "#f4e2c8", "#e0e0cb", "#d7dfcf"][
             Math.floor(rand(i) * 6)
           ],
-        ).multiplyScalar(0.8 + rand(i * 7 + j) * 0.4);
+        ).multiplyScalar(0.82 + rand(i * 7 + j) * 0.2);
         canopy.current!.setColorAt(i * 22 + j, c);
         for (let k = 0; k < 10; k++) {
           const n = i * 220 + j * 10 + k,
@@ -623,12 +754,12 @@ export function Forest({
           const radius = t.s * (0.75 + rand(n + 2000) * 0.4);
           o.position.set(
             t.x + Math.cos(a) * t.s * r + Math.cos(az) * Math.sin(el) * radius,
-            t.s * y + Math.cos(el) * radius,
+            baseY + t.s * y + Math.cos(el) * radius,
             t.z + Math.sin(a) * t.s * r + Math.sin(az) * Math.sin(el) * radius,
           );
           o.scale.set(
-            t.s * (0.7 + rand(n) * 0.65),
-            t.s * (0.7 + rand(n) * 0.65),
+            t.s * (0.66 + rand(n) * 0.57),
+            t.s * (0.66 + rand(n) * 0.57),
             1,
           );
           o.rotation.set(
@@ -653,7 +784,7 @@ export function Forest({
       o.rotation.set(0, rand(i) * 6, rand(i + 2) * 0.4);
       o.updateMatrix();
       grass.current.setMatrixAt(i, o.matrix);
-      grass.current.setColorAt(i, c.set(i % 4 ? "#8d995b" : "#c2aa62"));
+      grass.current.setColorAt(i, c.set(i % 4 ? "#73774c" : "#a18b5b"));
     }
     leaves.current.instanceMatrix.needsUpdate = true;
     leaves.current.instanceColor!.needsUpdate = true;
@@ -670,12 +801,27 @@ export function Forest({
   const grassGeometry = useMemo(() => {
     const positions: number[] = [],
       uv: number[] = [];
-    for (let j = 0; j < 3; j++) {
-      const a = (j * Math.PI) / 3,
-        dx = Math.cos(a) * 0.5,
-        dz = Math.sin(a) * 0.5;
-      positions.push(-dx, -0.5, -dz, dx, -0.5, dz, 0.18, 0.55, 0.12);
-      uv.push(0, 0, 1, 0, 0.5, 1);
+    // Five narrow, bent blades per tuft. The silhouette stays organic at eye
+    // level without alpha overdraw or a separate draw call for each blade.
+    for (let j = 0; j < 5; j++) {
+      const a = j * 2.399,
+        height = 0.65 + rand(j + 30) * 0.4;
+      const dx = Math.cos(a),
+        dz = Math.sin(a),
+        width = 0.055;
+      const root = new T.Vector3(dx * 0.23, -0.5, dz * 0.23);
+      const middle = root
+        .clone()
+        .add(new T.Vector3(dx * 0.12, height * 0.6, dz * 0.12));
+      const tip = root.clone().add(new T.Vector3(dx * 0.31, height, dz * 0.31));
+      const side = new T.Vector3(-dz * width, 0, dx * width);
+      const l = root.clone().sub(side),
+        r = root.clone().add(side);
+      const ml = middle.clone().addScaledVector(side, -0.52),
+        mr = middle.clone().addScaledVector(side, 0.52);
+      for (const v of [l, r, ml, r, mr, ml, ml, mr, tip])
+        positions.push(v.x, v.y, v.z);
+      uv.push(0, 0, 1, 0, 0, 0.6, 1, 0, 1, 0.6, 0, 0.6, 0, 0.6, 1, 0.6, 0.5, 1);
     }
     const g = new T.BufferGeometry();
     g.setAttribute("position", new T.Float32BufferAttribute(positions, 3));
@@ -683,75 +829,7 @@ export function Forest({
     g.computeVertexNormals();
     return g;
   }, []);
-  const leafMap = useMemo(() => {
-    const c = document.createElement("canvas");
-    c.width = c.height = 128;
-    const x = c.getContext("2d")!;
-    x.fillStyle = "#e8dfb6";
-    x.beginPath();
-    x.moveTo(64, 118);
-    for (const [px, py] of [
-      [48, 87],
-      [22, 89],
-      [30, 70],
-      [7, 47],
-      [37, 49],
-      [31, 24],
-      [53, 38],
-      [64, 5],
-      [75, 38],
-      [97, 24],
-      [91, 49],
-      [121, 47],
-      [98, 70],
-      [106, 89],
-      [80, 87],
-    ])
-      x.lineTo(px, py);
-    x.closePath();
-    x.fill();
-    x.strokeStyle = "#96875766";
-    x.lineWidth = 2;
-    x.beginPath();
-    x.moveTo(64, 118);
-    x.lineTo(64, 15);
-    x.moveTo(64, 83);
-    x.lineTo(18, 51);
-    x.moveTo(64, 83);
-    x.lineTo(110, 51);
-    x.moveTo(64, 60);
-    x.lineTo(38, 32);
-    x.moveTo(64, 60);
-    x.lineTo(90, 32);
-    x.stroke();
-    const cluster = document.createElement("canvas");
-    cluster.width = cluster.height = 256;
-    const cx = cluster.getContext("2d")!;
-    cx.strokeStyle = "#827347";
-    cx.lineWidth = 1.4;
-    cx.beginPath();
-    cx.moveTo(128, 245);
-    cx.lineTo(121, 25);
-    cx.stroke();
-    for (let i = 0; i < 9; i++) {
-      const side = i % 2 ? 1 : -1,
-        py = 30 + i * 21,
-        px = 128 + side * (19 + rand(i + 32) * 25);
-      cx.beginPath();
-      cx.moveTo(126, py + 27);
-      cx.lineTo(px, py);
-      cx.stroke();
-      cx.save();
-      cx.translate(px, py);
-      cx.rotate(side * 0.5);
-      cx.drawImage(c, -34, -44, 68, 68);
-      cx.restore();
-    }
-    const texture = new T.CanvasTexture(cluster);
-    texture.colorSpace = T.SRGBColorSpace;
-    texture.anisotropy = 4;
-    return texture;
-  }, []);
+  const leafMap = useMemo(autumnFoliageTexture, []);
   return (
     <>
       <instancedMesh
@@ -768,16 +846,28 @@ export function Forest({
         castShadow
         receiveShadow
       >
-        <cylinderGeometry args={[0.6, 1, 1, 7]} />
-        <meshStandardMaterial color="#665043" map={woodMap()} roughness={1} />
+        <cylinderGeometry args={[0.6, 1, 1, 14]} />
+        <meshStandardMaterial
+          color="#b9b1a5"
+          {...pbrTextures("bark")}
+          normalScale={new T.Vector2(0.65, 0.65)}
+          onBeforeCompile={instanceBarkUV}
+          roughness={1}
+        />
       </instancedMesh>
       <instancedMesh
         ref={branches}
         args={[undefined, undefined, data.length * 3]}
         castShadow
       >
-        <cylinderGeometry args={[0.3, 1, 1, 6]} />
-        <meshStandardMaterial color="#715846" roughness={1} />
+        <cylinderGeometry args={[0.3, 1, 1, 10]} />
+        <meshStandardMaterial
+          color="#bab2a5"
+          {...pbrTextures("bark")}
+          normalScale={new T.Vector2(0.6, 0.6)}
+          onBeforeCompile={instanceBarkUV}
+          roughness={1}
+        />
       </instancedMesh>
       <instancedMesh
         ref={canopy}
@@ -792,6 +882,7 @@ export function Forest({
         ref={grass}
         args={[undefined, undefined, 9000]}
         visible={!river}
+        receiveShadow
       >
         <primitive object={grassGeometry} attach="geometry" />
         <WindMaterial grass phase={phase} />

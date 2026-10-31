@@ -1,0 +1,8 @@
+woodland-fern.webp
+Created for The Last Light with the built-in OpenAI ImageGen tool, 31 October 2026.
+Photorealistic generated fern cutout; not a photographed/scanned source.
+Original generated PNG converted to 1024 x 1024 WebP; alpha preserved.
+Used for curved, instanced fern fronds in src/autumn/ForestFloor.tsx.
+
+Final prompt:
+Use case: photorealistic-natural. Asset type: alpha-cutout texture for a realistic real-time 3D woodland fern, square 1024 image. Primary request: one single fern frond photographed straight down, isolated with true transparent background, fine individual serrated leaflets and gaps between the leaflets. The narrow central stem starts at bottom center at the edge and rises vertically toward a gently curved tapering tip near top center; the complete frond fills 90 percent of the height and 70 percent of the width. It is a real autumn woodland fern: natural muted olive and moss green with a few brown weathered leaflet tips, subtly uneven leaflets, delicate vein detail, matte surfaces. Completely even soft diffuse light without cast shadows or baked directional highlights, no dark fringe, no white fringe. Keep all leaflets fully inside frame. No soil, no pot, no other plants, no background scene, no text, no border, no roots, no decorative illustration. Important: actual transparent alpha including all small spaces between serrated leaflets, physically plausible natural leaf surfaces, not a drawing. This single frond will be bent into multiple directions in a 3D fern rosette.

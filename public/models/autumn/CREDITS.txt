@@ -1,0 +1,4 @@
+Bramblewick wildlife — original assets created for Mingy's World.
+Deer and rabbit anatomical geometry, continuous skinned anatomical surfaces, articulated skeletons, UVs and coat textures were authored procedurally in Blender 5.2.1. No third-party animal assets or textures are included.
+Rebuild source: scripts/build-autumn-wildlife.py
+Embedded JPEG fur maps; no runtime texture requests or external asset hosts.

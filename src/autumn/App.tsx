@@ -56,6 +56,7 @@ import type { State } from "../../server/autumn/rules";
 import type { Target } from "./World";
 import { MiniMap } from "./MiniMap";
 import { Journal } from "./Journal";
+import { finishDisplayCalibration } from "./displayCadence";
 import "./autumn.css";
 const World = lazy(() => import("./World"));
 const LanternPreview = lazy(() => import("./LanternPreview"));
@@ -502,6 +503,8 @@ function Game() {
     }
   };
   const join = () => {
+    // Stop before scene parsing, shader compilation or uploads can affect it.
+    finishDisplayCalibration();
     setEntered(true);
     void media.unlock();
     sound.start();
@@ -682,7 +685,7 @@ function Game() {
               </span>
             )}
           </div>
-          {!river && <MiniMap s={s} role={role} />}
+          <MiniMap s={s} role={role} />
           <div className="ll-inventory">
             {s.bags[role]?.length > 0 && (
               <>
@@ -1132,24 +1135,25 @@ function Game() {
   );
 }
 function TouchControls({ action }: { action: (down: boolean) => void }) {
-  const last = useRef({ x: 0, y: 0 });
+  const moveOrigin = useRef({ x: 0, y: 0 });
+  const lookLast = useRef({ x: 0, y: 0 });
   return (
     <div className="ll-touch">
       <div
         className="ll-touch-pad"
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
-          last.current = { x: e.clientX, y: e.clientY };
+          moveOrigin.current = { x: e.clientX, y: e.clientY };
         }}
         onPointerMove={(e) => {
           if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
           input.touch.x = Math.max(
             -1,
-            Math.min(1, (e.clientX - last.current.x) / 35),
+            Math.min(1, (e.clientX - moveOrigin.current.x) / 35),
           );
           input.touch.z = Math.max(
             -1,
-            Math.min(1, (e.clientY - last.current.y) / 35),
+            Math.min(1, (e.clientY - moveOrigin.current.y) / 35),
           );
         }}
         onPointerUp={() => (input.touch = { x: 0, z: 0 })}
@@ -1162,16 +1166,19 @@ function TouchControls({ action }: { action: (down: boolean) => void }) {
         aria-label="Drag to look"
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
-          last.current = { x: e.clientX, y: e.clientY };
+          lookLast.current = { x: e.clientX, y: e.clientY };
         }}
         onPointerMove={(e) => {
           if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
-          input.yaw -= (e.clientX - last.current.x) * 0.006;
+          input.yaw -= (e.clientX - lookLast.current.x) * 0.006;
           input.pitch = Math.max(
             -1.15,
-            Math.min(1.15, input.pitch - (e.clientY - last.current.y) * 0.005),
+            Math.min(
+              1.15,
+              input.pitch - (e.clientY - lookLast.current.y) * 0.005,
+            ),
           );
-          last.current = { x: e.clientX, y: e.clientY };
+          lookLast.current = { x: e.clientX, y: e.clientY };
         }}
       />
       <button

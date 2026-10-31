@@ -1,7 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { wildlifePlan, wildlifeHomes } from "../src/autumn/wildlifeBehavior.ts";
 import { obstacles } from "../src/autumn/content.ts";
+test("wildlife assets require no optional compression decoder runtime", () => {
+  for (const animal of ["deer", "rabbit"]) {
+    const bytes = readFileSync(
+      new URL(`../public/models/autumn/${animal}.glb`, import.meta.url),
+    );
+    const gltf = JSON.parse(
+      bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString(),
+    );
+    const extensions = [
+      ...(gltf.extensionsUsed || []),
+      ...(gltf.extensionsRequired || []),
+    ];
+    assert.ok(!extensions.includes("KHR_draco_mesh_compression"), animal);
+    assert.ok(!extensions.includes("EXT_meshopt_compression"), animal);
+  }
+});
 test("wildlife routes match across clients and remain in safe clearings", () => {
   for (const animal of wildlifeHomes)
     for (let t = 0; t < 600; t += 0.37) {

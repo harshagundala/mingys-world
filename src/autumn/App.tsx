@@ -60,10 +60,11 @@ import type { Target } from "./World";
 import { MiniMap } from "./MiniMap";
 import { Journal } from "./Journal";
 import { finishDisplayCalibration } from "./displayCadence";
+import { loadAutumnWorld, warmAutumnWorld } from "./startup";
 import { ExpeditionHUD } from "./ExpeditionHUD";
 import { expeditionProgress } from "./expeditionPlay";
 import "./autumn.css";
-const World = lazy(() => import("./World"));
+const World = lazy(loadAutumnWorld);
 const LanternPreview = lazy(() => import("./LanternPreview"));
 const palette = [
   "#ffbd68",
@@ -285,6 +286,23 @@ function Game() {
     toastTimer.current = window.setTimeout(() => setToast(""), 4500);
   }, []);
   const river = s?.phase === 3 && s.boarded.length === 2;
+  useEffect(() => {
+    if (entered) return;
+    let idle = 0;
+    const timer = window.setTimeout(() => {
+      const warm = () => {
+        finishDisplayCalibration();
+        warmAutumnWorld();
+      };
+      if ("requestIdleCallback" in window)
+        idle = window.requestIdleCallback(warm, { timeout: 700 });
+      else warm();
+    }, 1100);
+    return () => {
+      clearTimeout(timer);
+      if (idle) window.cancelIdleCallback(idle);
+    };
+  }, [entered]);
   const paused =
     !!modal || chapter >= 0 || !entered || snapshot.status === "error";
   useEffect(() => {
@@ -619,6 +637,7 @@ function Game() {
   const join = () => {
     // Stop before scene parsing, shader compilation or uploads can affect it.
     finishDisplayCalibration();
+    warmAutumnWorld();
     setEntered(true);
     void media.unlock();
     sound.start();

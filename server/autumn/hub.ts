@@ -63,10 +63,22 @@ async function subscribe(room: string) {
 }
 export async function publicAutumnRoom() {
   const k = `${namespace}:entrance`;
-  await redis.set(k, randomUUID().replaceAll("-", ""), "NX");
-  return (await redis.get(k))!;
+  return (await redis.eval(
+    "redis.call('SET',KEYS[1],ARGV[1],'NX') return redis.call('GET',KEYS[1])",
+    1,
+    k,
+    randomUUID().replaceAll("-", ""),
+  )) as string;
 }
 const saveScript = `if redis.call('GET',KEYS[1]) ~= ARGV[1] then return 0 end redis.call('EXPIRE',KEYS[1],20) redis.call('SET',KEYS[2],ARGV[2],'EX',20) redis.call('SET',KEYS[3],ARGV[2],'EX',2592000) return 1`;
+// Read the state only after acquiring its lease, in the same Redis operation.
+const lockSnapshotScript = `if not redis.call('SET',KEYS[1],ARGV[1],'PX',4000,'NX') then return {0,false} end return {1,redis.call('GET',KEYS[2])}`;
+// A slow/expired writer cannot overwrite a newer state or release its lease.
+const commitScript = `if redis.call('GET',KEYS[1])~=ARGV[1] then return 0 end redis.call('SET',KEYS[2],ARGV[2]) redis.call('DEL',KEYS[1]) return 1`;
+const unlockScript = `if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end`;
+// Seat ownership and both pose records become visible together. The room lease
+// still protects the seat decision made from the saved player identities.
+const claimScript = `if redis.call('GET',KEYS[1])~=ARGV[1] then return 0 end redis.call('SET',KEYS[2],ARGV[2],'EX',20) redis.call('SET',KEYS[3],ARGV[3],'EX',20) redis.call('SET',KEYS[4],ARGV[3],'EX',2592000) return 1`;
 async function posesFor(room: string) {
   const values = await redis.mget(`${key(room)}:pose:0`, `${key(room)}:pose:1`);
   const out: Record<string, Pose> = {};
@@ -77,33 +89,49 @@ async function posesFor(room: string) {
 }
 async function mutate(
   room: string,
-  fn: (s: State) => Promise<{ state: State; message?: string }>,
+  fn: (
+    s: State,
+    lease: { key: string; token: string },
+  ) => Promise<{ state: State; message?: string }>,
 ) {
   const lock = `${key(room)}:lock`,
     token = randomUUID();
-  let locked = false;
+  let locked = false,
+    committed = false,
+    raw: string | null = null;
   for (let i = 0; i < 36; i++) {
-    if (await redis.set(lock, token, "PX", 4000, "NX")) {
+    const snapshot = (await redis.eval(
+      lockSnapshotScript,
+      2,
+      lock,
+      key(room),
+      token,
+    )) as [number, string | null];
+    if (snapshot[0]) {
       locked = true;
+      raw = snapshot[1];
       break;
     }
     await new Promise((r) => setTimeout(r, 22));
   }
   if (!locked) throw new Error("One moment. Your action will retry.");
   try {
-    const raw = await redis.get(key(room));
     const result = await fn(
       raw ? normalizeState(JSON.parse(raw)) : initialState(),
+      { key: lock, token },
     );
-    await redis.set(key(room), JSON.stringify(result.state));
+    committed = !!(await redis.eval(
+      commitScript,
+      2,
+      lock,
+      key(room),
+      token,
+      JSON.stringify(result.state),
+    ));
+    if (!committed) throw new Error("One moment. Your action will retry.");
     return result;
   } finally {
-    await redis.eval(
-      "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end",
-      1,
-      lock,
-      token,
-    );
+    if (!committed) await redis.eval(unlockScript, 1, lock, token);
   }
 }
 export function attachAutumn(ws: any) {
@@ -182,11 +210,14 @@ export function attachAutumn(ws: any) {
       }
       const target = a.room || (await publicAutumnRoom());
       let occupied = false;
-      const result = await mutate(target, async (s) => {
-        const seats = await redis.mget(
+      const result = await mutate(target, async (s, lease) => {
+        const records = await redis.mget(
           `${key(target)}:seat:0`,
           `${key(target)}:seat:1`,
+          `${key(target)}:last:0`,
+          `${key(target)}:last:1`,
         );
+        const seats = records.slice(0, 2);
         const assigned = chooseSeat(
           s.players,
           seats.map(Boolean),
@@ -201,12 +232,24 @@ export function attachAutumn(ws: any) {
         role = assigned;
         id = a.playerId;
         pose = spawn(role);
-        const saved = await redis.get(`${key(room)}:last:${role}`);
+        const saved = records[2 + role];
         if (saved) pose = JSON.parse(saved);
         if (s.phase === 9 && pose.scene !== "hollow") pose = hollowSpawn(role);
         else if (s.phase !== 9 && pose.scene === "hollow") pose = spawn(role);
-        await redis.set(`${key(room)}:seat:${role}`, ws.connectionId, "EX", 20);
-        await save();
+        if (
+          !(await redis.eval(
+            claimScript,
+            4,
+            lease.key,
+            `${key(room)}:seat:${role}`,
+            `${key(room)}:pose:${role}`,
+            `${key(room)}:last:${role}`,
+            lease.token,
+            ws.connectionId,
+            JSON.stringify({ ...pose, time: Date.now() }),
+          ))
+        )
+          throw new Error("One moment. Your connection will retry.");
         if (seats[role]) {
           for (const other of rooms.get(room) || [])
             if (other.connectionId === seats[role])
@@ -371,14 +414,14 @@ export function attachAutumn(ws: any) {
         ws.close(4410, "Playing in another tab");
         return;
       }
-      const poses = await posesFor(room);
-      poses[role] = { ...pose, time: Date.now() };
       const result = await mutate(room, async (s) => {
-        if (
-          s.players[role]?.id !== id ||
-          (await redis.get(`${key(room)}:seat:${role}`)) !== ws.connectionId
-        )
+        const [seat, poses] = await Promise.all([
+          redis.get(`${key(room)}:seat:${role}`),
+          posesFor(room),
+        ]);
+        if (s.players[role]?.id !== id || seat !== ws.connectionId)
           throw new Error("This seat moved to another tab.");
+        poses[role] = { ...pose, time: Date.now() };
         return reduce(s, role, a.action as Action, poses);
       });
       send(ws, {
@@ -417,13 +460,19 @@ export function attachAutumn(ws: any) {
     } else
       queue = queue
         .then(() => handle(a))
-        .catch(() =>
+        .catch(() => {
+          // Joining has no action receipt to retry. Reopen the connection if
+          // its lease or datastore request failed before welcome completed.
+          if (a.type === "join") {
+            ws.close(4000, "Refreshing connection");
+            return;
+          }
           send(ws, {
             type: "retry",
             id: a.action?.id,
             message: "Reconnecting. Your progress is safe.",
-          }),
-        );
+          });
+        });
   });
   ws.on("error", () => {});
   ws.on("close", () => {

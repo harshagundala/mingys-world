@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as T from "three";
-import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
+import {
+  loadSkyPhotograph,
+  loadSkyRadiance,
+  peekSkyPhotograph,
+  peekSkyRadiance,
+} from "./skyAssets";
 
 /** Photographic sky and matching HDR illumination, kept local to the game bundle. */
 export function RealSky({
@@ -28,59 +33,72 @@ export function RealSky({
     }),
     [],
   );
-  useEffect(() => {
+  useLayoutEffect(() => {
     let alive = true;
     let sky: T.Texture | null = null;
-    let radiance: T.Texture | null = null;
+    let hdrFailed = false;
     let target: T.WebGLRenderTarget | null = null;
     const original = scene.environment;
     const originalIntensity = scene.environmentIntensity;
     const originalRotation = scene.environmentRotation.clone();
-    const generator = new T.PMREMGenerator(gl);
-    generator.compileEquirectangularShader();
-    const load = async () => {
+    const installEnvironment = (source: T.Texture) => {
+      if (!alive || target) return;
+      const radiance = source === sky ? source : source.clone();
+      const generator = new T.PMREMGenerator(gl);
       try {
-        sky = await new T.TextureLoader().loadAsync(
-          "/textures/autumn-sky.webp",
-        );
-        if (!alive) {
-          sky.dispose();
-          return;
-        }
-        // WebGL performs the sRGB -> linear conversion while sampling this map.
-        sky.colorSpace = T.SRGBColorSpace;
-        sky.mapping = T.EquirectangularReflectionMapping;
-        sky.wrapS = T.RepeatWrapping;
-        sky.minFilter = T.LinearMipmapLinearFilter;
-        sky.anisotropy = Math.min(4, gl.capabilities.getMaxAnisotropy());
-        photograph.current = sky;
-        initialized.current = true;
-        try {
-          // The HDR capture supplies light energy; the WebP supplies the sharp sky.
-          radiance = await new HDRLoader().loadAsync(
-            "/textures/autumn-light.hdr",
-          );
-        } catch {
-          // A delayed/failed HDR request should never block joining the world.
-          radiance = sky;
-        }
-        if (!alive) {
-          if (radiance !== sky) radiance.dispose();
-          return;
-        }
+        generator.compileEquirectangularShader();
         radiance.mapping = T.EquirectangularReflectionMapping;
         target = generator.fromEquirectangular(radiance);
         scene.environment = target.texture;
+        scene.environmentIntensity = T.MathUtils.lerp(
+          0.55,
+          0.065,
+          uniforms.evening.value,
+        );
+        scene.environmentRotation.set(0, uniforms.azimuth.value, 0);
         lighting.current = target;
-        if (radiance !== sky) radiance.dispose();
-        radiance = null;
       } catch (error) {
-        if (alive) console.warn("The sky texture could not be loaded.", error);
+        console.warn("The sky lighting could not be prepared.", error);
       } finally {
+        if (radiance !== sky) radiance.dispose();
         generator.dispose();
       }
     };
-    void load();
+    const installPhotograph = (source: T.Texture) => {
+      if (!alive) return;
+      sky = source.clone();
+      // Retain the same photograph, sampling, color conversion and reveal animation.
+      sky.colorSpace = T.SRGBColorSpace;
+      sky.mapping = T.EquirectangularReflectionMapping;
+      sky.wrapS = T.RepeatWrapping;
+      sky.minFilter = T.LinearMipmapLinearFilter;
+      sky.anisotropy = Math.min(4, gl.capabilities.getMaxAnisotropy());
+      photograph.current = sky;
+      initialized.current = true;
+      if (hdrFailed) installEnvironment(sky);
+    };
+    const cachedPhotograph = peekSkyPhotograph();
+    if (cachedPhotograph) installPhotograph(cachedPhotograph);
+    else
+      void loadSkyPhotograph()
+        .then(installPhotograph)
+        .catch((error) => {
+          if (alive)
+            console.warn("The sky texture could not be loaded.", error);
+        });
+
+    // A warmed HDR is installed synchronously before the first scene draw. PBR
+    // materials therefore compile with their final environment from the outset.
+    const cachedRadiance = peekSkyRadiance();
+    if (cachedRadiance) installEnvironment(cachedRadiance);
+    else
+      void loadSkyRadiance()
+        .then(installEnvironment)
+        .catch(() => {
+          if (!alive) return;
+          hdrFailed = true;
+          if (sky) installEnvironment(sky);
+        });
     return () => {
       alive = false;
       initialized.current = false;
@@ -97,7 +115,6 @@ export function RealSky({
       lighting.current = null;
       target?.dispose();
       sky?.dispose();
-      generator.dispose();
     };
   }, [gl, scene, uniforms]);
   useFrame(({ camera, clock }, dt) => {

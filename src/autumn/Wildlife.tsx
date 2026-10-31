@@ -54,7 +54,9 @@ function Animal({
   s: State;
   quality: string;
 }) {
-  const { scene } = useGLTF(`/models/autumn/${animal.kind}.glb`);
+  // These local GLBs contain no compressed extensions. Avoid starting unused
+  // Draco/Meshopt decoder machinery on the first visible animal.
+  const { scene } = useGLTF(`/models/autumn/${animal.kind}.glb`, false, false);
   const model = useMemo(() => {
     const clone = cloneSkeleton(scene);
     clone.traverse((o) => {

@@ -1,5 +1,5 @@
 import { net } from "./network";
-class Media extends EventTarget {
+export class Media extends EventTarget {
   stream = new MediaStream();
   remote = new MediaStream();
   pc: RTCPeerConnection | null = null;
@@ -23,7 +23,10 @@ class Media extends EventTarget {
   lastStatsAdvance = 0;
   healthy = false;
   generation = 0;
-  pending: RTCIceCandidateInit[] = [];
+  pending: { candidate: RTCIceCandidateInit; session?: string }[] = [];
+  session = "";
+  retiredSessions = new Set<string>();
+  lastRequestId = "";
   timer = 0;
   healthTimer = 0;
   retryTimer = 0;
@@ -271,6 +274,7 @@ class Media extends EventTarget {
         if (s.type === "inbound-rtp") bytes += s.bytesReceived || 0;
       });
     } catch {}
+    if (this.pc !== pc) return;
     if (bytes !== this.lastStatsBytes) {
       this.lastStatsBytes = bytes;
       this.lastStatsAdvance = Date.now();
@@ -295,15 +299,17 @@ class Media extends EventTarget {
     )
       void this.connect();
   }
-  async connect() {
+  async connect(requestOffer = true, offeredSession = "") {
     if (
       this.starting ||
       !net.snapshot.peer ||
       net.snapshot.status !== "connected"
     )
       return;
-    this.starting = true;
     this.disconnect();
+    this.starting = true;
+    this.session =
+      net.snapshot.role === 0 ? crypto.randomUUID() : offeredSession;
     this.startTimers();
     this.lastOffer = Date.now();
     const generation = ++this.generation;
@@ -318,6 +324,7 @@ class Media extends EventTarget {
     this.remote = new MediaStream();
     this.lastStatsAdvance = Date.now();
     const bind = (channel: RTCDataChannel) => {
+      if (this.pc !== pc) return;
       net.fast = channel;
       channel.onmessage = (e) => {
         try {
@@ -340,7 +347,11 @@ class Media extends EventTarget {
       if (e.candidate && this.pc === pc)
         net.send({
           type: "rtc",
-          data: { candidate: e.candidate.toJSON(), generation },
+          data: {
+            candidate: e.candidate.toJSON(),
+            generation,
+            session: this.session,
+          },
         });
     };
     pc.ontrack = (e) => {
@@ -370,71 +381,156 @@ class Media extends EventTarget {
         }
         if (this.pc !== pc) return;
         await pc.setLocalDescription(await pc.createOffer());
+        if (this.pc !== pc) return;
         net.send({
           type: "rtc",
-          data: { description: pc.localDescription, generation },
+          data: {
+            description: pc.localDescription,
+            generation,
+            session: this.session,
+          },
         });
-      } else net.send({ type: "rtc", data: { requestOffer: true } });
+      } else if (requestOffer) {
+        net.send({
+          type: "rtc",
+          data: { requestOffer: true, requestId: crypto.randomUUID() },
+        });
+      }
     } catch {
     } finally {
-      this.starting = false;
-      this.announce();
+      if (this.pc === pc) {
+        this.starting = false;
+        this.announce();
+      }
     }
   }
   async signal(data: any) {
-    if (!net.snapshot.peer) return;
-    if (data.requestOffer && net.snapshot.role === 0) {
-      if (Date.now() - this.lastOffer < 700 && this.pc?.localDescription)
+    if (!net.snapshot.peer || !data || typeof data !== "object") return;
+    const session = typeof data.session === "string" ? data.session : undefined;
+    const sendDescription = (pc: RTCPeerConnection) => {
+      if (this.pc === pc && pc.localDescription)
         net.send({
           type: "rtc",
-          data: { description: this.pc.localDescription },
+          data: {
+            description: pc.localDescription,
+            session: this.session,
+            generation: this.generation,
+          },
         });
-      else await this.connect();
+    };
+    if (data.requestOffer && net.snapshot.role === 0) {
+      // Duplicate requests or a responder arriving while the initial offer is in
+      // flight reuse that offer; neither should destroy a healthy negotiation.
+      const duplicate =
+        typeof data.requestId === "string" &&
+        data.requestId === this.lastRequestId;
+      if (typeof data.requestId === "string")
+        this.lastRequestId = data.requestId;
+      const pc = this.pc;
+      if (
+        pc?.localDescription?.type === "offer" &&
+        (duplicate ||
+          (pc.signalingState === "have-local-offer" &&
+            Date.now() - this.lastOffer < 9000))
+      ) {
+        sendDescription(pc);
+      } else if (!duplicate) await this.connect();
       return;
     }
-    if (data.description?.type === "offer" && net.snapshot.role === 1) {
+    const description = data.description;
+    if (description?.type === "offer" && net.snapshot.role === 1) {
+      if (session && this.retiredSessions.has(session)) return;
+      let pc = this.pc;
+      // At-least-once Redis/WebSocket delivery may repeat the same SDP after an
+      // answer has already been applied. Answer it again, never reconnect.
       if (
-        !this.pc ||
-        (this.pc.signalingState === "stable" && this.pc.remoteDescription)
+        pc?.remoteDescription?.type === "offer" &&
+        pc.remoteDescription.sdp === description.sdp &&
+        (!session || this.session === session)
       ) {
-        await this.connect();
+        if (pc.localDescription?.type === "answer") sendDescription(pc);
+        return;
+      }
+      const queued = this.pending.filter(
+        (item) => !item.session || item.session === session,
+      );
+      if (!pc || pc.remoteDescription) {
+        // Receiving an offer must NOT send requestOffer: that creates an
+        // offer -> request -> offer feedback loop between the two browsers.
+        await this.connect(false, session || "");
+        pc = this.pc;
+      } else this.session = session || "";
+      if (!pc) return;
+      this.pending = queued;
+      try {
+        await pc.setRemoteDescription(description);
+        if (this.pc !== pc) return;
+        await this.flushCandidates(pc);
+        for (const transceiver of pc.getTransceivers()) {
+          transceiver.direction = "sendrecv";
+          await transceiver.sender.replaceTrack(
+            this.stream
+              .getTracks()
+              .find(
+                (track) => track.kind === transceiver.receiver.track.kind,
+              ) || null,
+          );
+          if (this.pc !== pc) return;
+        }
+        await pc.setLocalDescription(await pc.createAnswer());
+        sendDescription(pc);
+      } catch {}
+      return;
+    }
+    if (description?.type === "answer" && net.snapshot.role === 0) {
+      const pc = this.pc;
+      // Answers from a replaced connection must never complete a newer offer.
+      if (
+        !pc ||
+        pc.signalingState !== "have-local-offer" ||
+        (session && session !== this.session)
+      )
+        return;
+      try {
+        await pc.setRemoteDescription(description);
+        if (this.pc === pc) await this.flushCandidates(pc);
+      } catch {}
+      return;
+    }
+    if (data.candidate) {
+      if (session && this.retiredSessions.has(session)) return;
+      const pc = this.pc;
+      // ICE can precede SDP. Keep a bounded per-session queue; a candidate from
+      // another negotiation is never fed into the currently connected peer.
+      if (pc?.remoteDescription && (!session || session === this.session)) {
+        await pc.addIceCandidate(data.candidate).catch(() => {});
+      } else {
+        this.pending.push({ candidate: data.candidate, session });
+        if (this.pending.length > 64) this.pending.shift();
       }
     }
-    if (!this.pc) await this.connect();
-    const pc = this.pc;
-    if (!pc) return;
-    try {
-      if (data.description) {
-        if (
-          data.description.type === "answer" &&
-          pc.signalingState !== "have-local-offer"
-        )
-          return;
-        await pc.setRemoteDescription(data.description);
-        for (const c of this.pending)
-          await pc.addIceCandidate(c).catch(() => {});
-        this.pending = [];
-        if (data.description.type === "offer") {
-          for (const t of pc.getTransceivers()) {
-            t.direction = "sendrecv";
-            await t.sender.replaceTrack(
-              this.stream
-                .getTracks()
-                .find((x) => x.kind === t.receiver.track.kind) || null,
-            );
-          }
-          await pc.setLocalDescription(await pc.createAnswer());
-          net.send({ type: "rtc", data: { description: pc.localDescription } });
-        }
-      }
-      if (data.candidate) {
-        if (pc.remoteDescription) await pc.addIceCandidate(data.candidate);
-        else this.pending.push(data.candidate);
-      }
-    } catch {}
+  }
+  async flushCandidates(pc: RTCPeerConnection) {
+    const matching = this.pending.filter(
+      (item) => !item.session || item.session === this.session,
+    );
+    this.pending = [];
+    for (const item of matching) {
+      if (this.pc !== pc) return;
+      await pc.addIceCandidate(item.candidate).catch(() => {});
+    }
   }
   disconnect() {
     this.generation++;
+    this.starting = false;
+    if (this.session) {
+      this.retiredSessions.add(this.session);
+      if (this.retiredSessions.size > 32)
+        this.retiredSessions.delete(
+          this.retiredSessions.values().next().value!,
+        );
+    }
+    this.session = "";
     this.healthy = false;
     this.pc?.close();
     this.pc = null;

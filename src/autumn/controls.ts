@@ -8,6 +8,7 @@ export const input = {
   third: false,
   sensitivity: 1,
   holding: 0,
+  jumpQueued: false,
 };
 export function setupInput(
   onAction: (down: boolean) => void,
@@ -32,6 +33,7 @@ export function setupInput(
       e.preventDefault();
     if (e.repeat) return;
     input.keys.add(e.code);
+    if (e.code === "Space" && !input.blocked) input.jumpQueued = true;
     if (e.code === "KeyE" && !input.blocked) onAction(true);
     if (e.code === "KeyH" || e.code === "KeyJ") onHelp();
     if (e.code === "KeyQ" && !input.blocked) onPing();
@@ -46,6 +48,7 @@ export function setupInput(
     input.touch = { x: 0, z: 0 };
     input.look = false;
     input.holding = 0;
+    input.jumpQueued = false;
   };
   const move = (e: MouseEvent) => {
     if (input.blocked) return;

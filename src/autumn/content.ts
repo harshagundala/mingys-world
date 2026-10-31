@@ -216,6 +216,8 @@ export type Pose = {
   time: number;
   seq: number;
   control?: number;
+  gesture?: string;
+  gestureAt?: number;
   scene: "valley" | "river";
 };
 export const spawn = (role: Role): Pose => ({

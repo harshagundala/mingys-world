@@ -75,3 +75,11 @@ The checks cover puzzle uniqueness, clue and distance requirements, separate pla
 Always launch automated browsers with `--args "--mute-audio"` so tests stay silent on the host Mac. This mutes the browser output while preserving the audio graph for verification.
 
 Browser QA artifacts and logs remain in the ignored `output/` directory. The game’s solution logic is intentionally kept out of this README.
+
+### Visual experience update
+
+The Last Light now uses wind-deformed instanced leaf clusters and grass, procedural terrain materials, detailed village architecture, animated bridge assembly, cloth movement, and real planar water reflections. Reflection resolution and cadence are bounded; rendering can lower pixel density under sustained load. The original puppy game stays independent.
+
+Player rigs use articulated joints, displacement-driven gait, jumping/landing, blinking, cloth movement, and action gestures. First-person hands carry the same objects and use contextual tools. The minimap updates outside React's render cycle; the field journal opens over the continuous world, and crafting previews the actual game model. Reduced-motion preferences simplify major interface/construction effects.
+
+Remote poses use a receipt-time interpolation buffer, reject duplicate/out-of-order packets, take the shortest rotation arc, and cap extrapolation during packet gaps. Durable state, audio/video relay fallback, and reconnect behavior remain intact. Visual upgrades do not reset existing saves.

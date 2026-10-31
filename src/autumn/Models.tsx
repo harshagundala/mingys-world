@@ -1,6 +1,8 @@
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as T from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { WindMaterial } from "./Landscape";
 import { rand, colors } from "./content";
 import type { Role } from "./content";
 export const mat = {
@@ -47,6 +49,51 @@ function woodMap() {
   timberTexture.anisotropy = 4;
   return timberTexture;
 }
+const roundedBox = new RoundedBoxGeometry(1, 1, 1, 2, 0.035);
+const boxMaterials = new Map<string, T.MeshStandardMaterial>();
+function surface(color: string, glow: number) {
+  const key = color + glow;
+  let material = boxMaterials.get(key);
+  if (!material) {
+    const c = new T.Color(color),
+      metal = [mat.iron, mat.gold, "#77817e", "#a5afa4", "#566665"].includes(
+        color,
+      );
+    const wood = !metal && c.r > c.b * 1.15 && c.g < c.r * 0.95;
+    material = new T.MeshStandardMaterial({
+      color,
+      map: wood && !glow ? woodMap() : null,
+      bumpMap: wood && !glow ? woodMap() : null,
+      bumpScale: 0.025,
+      roughness: metal ? 0.38 : 0.86,
+      metalness: metal ? 0.55 : 0,
+      emissive: color,
+      emissiveIntensity: glow,
+    });
+    boxMaterials.set(key, material);
+  }
+  return material;
+}
+let paperTexture: T.CanvasTexture | null = null;
+function paperMap() {
+  if (paperTexture) return paperTexture;
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const x = c.getContext("2d")!;
+  x.fillStyle = "#f8edce";
+  x.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 1600; i++) {
+    x.fillStyle = i % 2 ? "#b7a87c18" : "#ffffff22";
+    x.fillRect(rand(i) * 128, rand(i + 43) * 128, 1, 3);
+  }
+  for (let i = 0; i < 8; i++) {
+    x.fillStyle = "#7c663c36";
+    x.fillRect(0, i * 16, 128, 1);
+  }
+  paperTexture = new T.CanvasTexture(c);
+  paperTexture.colorSpace = T.SRGBColorSpace;
+  return paperTexture;
+}
 export function Box({
   p = [0, 0, 0],
   s = [1, 1, 1],
@@ -61,16 +108,16 @@ export function Box({
   glow?: number;
 }) {
   return (
-    <mesh position={p as any} rotation={rot as any} castShadow receiveShadow>
-      <boxGeometry args={s as any} />
-      <meshStandardMaterial
-        color={color}
-        map={glow ? null : woodMap()}
-        roughness={0.85}
-        emissive={color}
-        emissiveIntensity={glow}
-      />
-    </mesh>
+    <mesh
+      position={p as any}
+      rotation={rot as any}
+      scale={s as any}
+      geometry={roundedBox}
+      material={surface(color, glow)}
+      castShadow
+      receiveShadow
+      dispose={null}
+    />
   );
 }
 export function Orb({
@@ -86,7 +133,7 @@ export function Orb({
 }) {
   return (
     <mesh position={p as any} scale={s as any} castShadow>
-      <sphereGeometry args={[1, 12, 8]} />
+      <sphereGeometry args={[1, 20, 14]} />
       <meshStandardMaterial
         color={color}
         roughness={0.75}
@@ -186,7 +233,9 @@ export function Lantern({
         <meshStandardMaterial
           color={lit ? color : "#b59c76"}
           emissive={color}
-          emissiveIntensity={lit ? 1.5 : 0}
+          map={paperMap()}
+          emissiveMap={paperMap()}
+          emissiveIntensity={lit ? 0.65 : 0}
           roughness={0.8}
         />
       </mesh>
@@ -467,7 +516,13 @@ export function Avatar({
     </group>
   );
 }
-export function Forest() {
+export function Forest({
+  phase = 0,
+  river = false,
+}: {
+  phase?: number;
+  river?: boolean;
+}) {
   const leaves = useRef<T.InstancedMesh>(null),
     trunk = useRef<T.InstancedMesh>(null),
     branches = useRef<T.InstancedMesh>(null),
@@ -475,6 +530,15 @@ export function Forest() {
     grass = useRef<T.InstancedMesh>(null);
   const data = useMemo(() => {
     const trees = [];
+    if (river) {
+      for (let i = 0; i < 220; i++)
+        trees.push({
+          x: (i % 2 ? 1 : -1) * (20 + rand(i + 99) * 22),
+          z: 70 - Math.floor(i / 2) * 10,
+          s: 1 + rand(i + 21) * 1.5,
+        });
+      return trees;
+    }
     for (let i = 0; i < 180; i++) {
       const a = rand(i + 40) * Math.PI * 2,
         r = 64 + rand(i + 70) * 55;
@@ -493,8 +557,8 @@ export function Forest() {
         s: 0.8 + rand(i + 77) * 0.8,
       });
     }
-    return trees;
-  }, []);
+    return trees.filter((t) => !(t.z < -58 && t.z > -79));
+  }, [river]);
   useMemo(() => {}, []);
   // Matrices are initialized before the first displayed frame.
   const initialized = useRef(false);
@@ -563,8 +627,8 @@ export function Forest() {
             t.z + Math.sin(a) * t.s * r + Math.sin(az) * Math.sin(el) * radius,
           );
           o.scale.set(
-            t.s * (0.35 + rand(n) * 0.4),
-            t.s * (0.35 + rand(n) * 0.4),
+            t.s * (0.7 + rand(n) * 0.65),
+            t.s * (0.7 + rand(n) * 0.65),
             1,
           );
           o.rotation.set(
@@ -578,11 +642,14 @@ export function Forest() {
         }
       }
     });
-    for (let i = 0; i < 1400; i++) {
+    for (let i = 0; i < 9000; i++) {
       const a = rand(i + 700) * 6.28,
         r = 8 + Math.sqrt(rand(i + 800)) * 86;
-      o.position.set(Math.cos(a) * r, 0.09, Math.sin(a) * r);
-      o.scale.set(0.055 + rand(i) * 0.08, 0.18 + rand(i + 1) * 0.21, 0.035);
+      let gx = Math.cos(a) * r,
+        gz = Math.sin(a) * r;
+      if (Math.abs(gx) < 4.2) gx += Math.sign(gx || 1) * 4.2;
+      o.position.set(gx, 0.09, gz);
+      o.scale.set(0.13 + rand(i) * 0.15, 0.25 + rand(i + 1) * 0.38, 0.13);
       o.rotation.set(0, rand(i) * 6, rand(i + 2) * 0.4);
       o.updateMatrix();
       grass.current.setMatrixAt(i, o.matrix);
@@ -596,7 +663,26 @@ export function Forest() {
     canopy.current.instanceColor!.needsUpdate = true;
     grass.current.instanceMatrix.needsUpdate = true;
     grass.current.instanceColor!.needsUpdate = true;
+    [leaves, trunk, branches, canopy, grass].forEach((r) =>
+      r.current?.computeBoundingSphere(),
+    );
   });
+  const grassGeometry = useMemo(() => {
+    const positions: number[] = [],
+      uv: number[] = [];
+    for (let j = 0; j < 3; j++) {
+      const a = (j * Math.PI) / 3,
+        dx = Math.cos(a) * 0.5,
+        dz = Math.sin(a) * 0.5;
+      positions.push(-dx, -0.5, -dz, dx, -0.5, dz, 0.18, 0.55, 0.12);
+      uv.push(0, 0, 1, 0, 0.5, 1);
+    }
+    const g = new T.BufferGeometry();
+    g.setAttribute("position", new T.Float32BufferAttribute(positions, 3));
+    g.setAttribute("uv", new T.Float32BufferAttribute(uv, 2));
+    g.computeVertexNormals();
+    return g;
+  }, []);
   const leafMap = useMemo(() => {
     const c = document.createElement("canvas");
     c.width = c.height = 128;
@@ -638,8 +724,32 @@ export function Forest() {
     x.moveTo(64, 60);
     x.lineTo(90, 32);
     x.stroke();
-    const texture = new T.CanvasTexture(c);
+    const cluster = document.createElement("canvas");
+    cluster.width = cluster.height = 256;
+    const cx = cluster.getContext("2d")!;
+    cx.strokeStyle = "#827347";
+    cx.lineWidth = 1.4;
+    cx.beginPath();
+    cx.moveTo(128, 245);
+    cx.lineTo(121, 25);
+    cx.stroke();
+    for (let i = 0; i < 9; i++) {
+      const side = i % 2 ? 1 : -1,
+        py = 30 + i * 21,
+        px = 128 + side * (19 + rand(i + 32) * 25);
+      cx.beginPath();
+      cx.moveTo(126, py + 27);
+      cx.lineTo(px, py);
+      cx.stroke();
+      cx.save();
+      cx.translate(px, py);
+      cx.rotate(side * 0.5);
+      cx.drawImage(c, -34, -44, 68, 68);
+      cx.restore();
+    }
+    const texture = new T.CanvasTexture(cluster);
     texture.colorSpace = T.SRGBColorSpace;
+    texture.anisotropy = 4;
     return texture;
   }, []);
   return (
@@ -650,12 +760,7 @@ export function Forest() {
         castShadow
       >
         <planeGeometry args={[1, 1]} />
-        <meshStandardMaterial
-          map={leafMap}
-          alphaTest={0.4}
-          side={T.DoubleSide}
-          roughness={1}
-        />
+        <WindMaterial map={leafMap} phase={phase} />
       </instancedMesh>
       <instancedMesh
         ref={trunk}
@@ -680,12 +785,16 @@ export function Forest() {
         castShadow
         receiveShadow
       >
-        <icosahedronGeometry args={[1, 1]} />
-        <meshStandardMaterial roughness={1} />
+        <icosahedronGeometry args={[0.01, 0]} />
+        <meshStandardMaterial roughness={1} visible={false} />
       </instancedMesh>
-      <instancedMesh ref={grass} args={[undefined, undefined, 1400]}>
-        <coneGeometry args={[1, 1, 3]} />
-        <meshStandardMaterial roughness={1} />
+      <instancedMesh
+        ref={grass}
+        args={[undefined, undefined, 9000]}
+        visible={!river}
+      >
+        <primitive object={grassGeometry} attach="geometry" />
+        <WindMaterial grass phase={phase} />
       </instancedMesh>
     </>
   );

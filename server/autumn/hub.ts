@@ -277,6 +277,11 @@ export function attachAutumn(ws: any) {
         yaw: p.yaw,
         pitch: p.pitch,
         moving: !!p.moving,
+        gesture: typeof p.gesture === "string" ? p.gesture.slice(0, 24) : "",
+        gestureAt:
+          Number.isFinite(p.gestureAt) && Math.abs(p.gestureAt - t) < 2000
+            ? p.gestureAt
+            : 0,
         seq: p.seq,
         control: Number.isFinite(p.control)
           ? Math.max(-1, Math.min(1, p.control))

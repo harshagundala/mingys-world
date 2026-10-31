@@ -54,8 +54,11 @@ import type { Role } from "./content";
 import { skillPhase } from "../../server/autumn/rules";
 import type { State } from "../../server/autumn/rules";
 import type { Target } from "./World";
+import { MiniMap } from "./MiniMap";
+import { Journal } from "./Journal";
 import "./autumn.css";
 const World = lazy(() => import("./World"));
+const LanternPreview = lazy(() => import("./LanternPreview"));
 const palette = [
   "#ffbd68",
   "#9ce0cc",
@@ -144,60 +147,6 @@ function Preview({ large = false }: { large?: boolean }) {
         </div>
       )}
       {!large && <span>You</span>}
-    </div>
-  );
-}
-function MiniMap({ s, role }: { s: State; role: Role }) {
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 200);
-    return () => clearInterval(t);
-  }, []);
-  let points: { x: number; z: number }[] = [];
-  if (s.phase === 1) points = [stations.cart];
-  else if (s.phase === 2) points = [stations.bench];
-  else if (s.phase === 3) points = [stations.dock];
-  else if (s.phase === 6)
-    points = towers.filter((_, i) => !s.towers.includes(i));
-  else if (s.phase === 7) points = [stations.lanternTable];
-  const p = net.local,
-    peer = net.poses[1 - role];
-  return (
-    <div className="ll-map" aria-label="Compass map">
-      <svg viewBox="-90 -90 180 180">
-        <circle r="88" fill="#162e2bdc" stroke="#e5d9ad33" />
-        <path
-          d="M0 -55V52M-29 -10L0 23L30 -23"
-          fill="none"
-          stroke="#c7bb9155"
-          strokeWidth="4"
-        />
-        <path d="M-80 -66H80" stroke="#80b5b899" strokeWidth="8" />
-        <text y="-71" x="0" textAnchor="middle" fill="#f4e4c2" fontSize="12">
-          N
-        </text>
-        {points.map((v, i) => (
-          <circle key={i} cx={v.x * 0.8} cy={v.z * 0.8} r="4" fill="#f4cf83" />
-        ))}
-        {peer && net.snapshot.peer && (
-          <circle
-            cx={peer.x * 0.8}
-            cy={peer.z * 0.8}
-            r="4"
-            fill={colors[1 - role]}
-          />
-        )}
-        <g
-          transform={`translate(${p.x * 0.8} ${p.z * 0.8}) rotate(${(-p.yaw * 180) / Math.PI})`}
-        >
-          <path
-            d="M0 -6L4 5L0 3L-4 5Z"
-            fill={colors[role]}
-            stroke="#fff5d6"
-            strokeWidth="1"
-          />
-        </g>
-      </svg>
     </div>
   );
 }
@@ -666,6 +615,15 @@ function Game() {
                 onNear={setNear}
                 paused={paused}
                 quality={quality}
+                focus={
+                  modal === "help"
+                    ? "journal"
+                    : modal === "craft"
+                      ? "craft"
+                      : chapter >= 0
+                        ? "chapter"
+                        : null
+                }
               />
             </Suspense>
           </Boundary>
@@ -960,8 +918,15 @@ function Game() {
         </div>
       )}
       {chapter >= 0 && s && (
-        <div className="ll-overlay ll-story-overlay">
-          <section className="ll-story">
+        <div className="ll-overlay ll-story-overlay" key={chapter}>
+          <div className="ll-chapter-grain" aria-hidden="true" />
+          <section
+            className="ll-story"
+            role="dialog"
+            aria-modal="true"
+            aria-label={acts[chapter].name}
+          >
+            <span className="ll-chapter-location">{acts[chapter].place}</span>
             <span className="ll-eyebrow">
               CHAPTER {String(chapter + 1).padStart(2, "0")}
             </span>
@@ -981,65 +946,8 @@ function Game() {
           </section>
         </div>
       )}
-      {modal === "help" && s && (
-        <div className="ll-overlay">
-          <section className="ll-modal">
-            <button
-              className="ll-close"
-              aria-label="Close field guide"
-              onClick={() => setModal(null)}
-            >
-              <X />
-            </button>
-            <span className="ll-eyebrow">YOUR FIELD GUIDE</span>
-            <h2>{acts[s.phase].name}</h2>
-            <p>{acts[s.phase].tip}</p>
-            <div className="ll-guide-keys">
-              <span>
-                <kbd>W A S D</kbd> Walk
-              </span>
-              <span>
-                <kbd>Mouse</kbd> Look around
-              </span>
-              <span>
-                <kbd>E</kbd> Use / gather
-              </span>
-              <span>
-                <kbd>Shift</kbd> Run
-              </span>
-              <span>
-                <kbd>Space</kbd> Jump
-              </span>
-              <span>
-                <kbd>V</kbd> Change view
-              </span>
-              <span>
-                <kbd>Q</kbd> Call your Mingy
-              </span>
-              <span>
-                <kbd>Esc</kbd> Release mouse / menu
-              </span>
-            </div>
-            <p className="ll-small">
-              Click the world to capture the mouse. Right-drag also works.
-              Refreshing keeps your progress and your character.
-            </p>
-            {s.phase === 1 && (
-              <div className="ll-friendly-score">
-                <span>
-                  {names[0]} <b>{s.score[0]}</b>
-                </span>
-                <Leaf size={20} />
-                <span>
-                  {names[1]} <b>{s.score[1]}</b>
-                </span>
-              </div>
-            )}
-            <button className="ll-primary" onClick={() => setModal(null)}>
-              Back to the evening
-            </button>
-          </section>
-        </div>
+      {s && (
+        <Journal open={modal === "help"} s={s} onClose={() => setModal(null)} />
       )}
       {modal === "settings" && (
         <div className="ll-overlay">
@@ -1125,8 +1033,13 @@ function Game() {
         </div>
       )}
       {modal === "craft" && s && (
-        <div className="ll-overlay">
-          <section className="ll-modal ll-craft">
+        <div className="ll-overlay ll-craft-overlay">
+          <section
+            className="ll-modal ll-craft"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Make a lantern"
+          >
             <button
               className="ll-close"
               aria-label="Close lantern maker"
@@ -1138,15 +1051,12 @@ function Game() {
               MADE BY {names[role].toUpperCase()}
             </span>
             <h2>A little light.</h2>
-            <div
-              className={`ll-paper-lantern shape-${craft.shape}`}
-              style={
-                { "--lantern": palette[craft.color] } as React.CSSProperties
-              }
-            >
-              <i />
-              <b />
-            </div>
+            <Suspense fallback={<div className="ll-lantern-preview" />}>
+              <LanternPreview
+                color={palette[craft.color]}
+                shape={craft.shape}
+              />
+            </Suspense>
             <div className="ll-swatches">
               {palette.map((c, i) => (
                 <button

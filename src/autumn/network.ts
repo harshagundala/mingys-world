@@ -1,3 +1,4 @@
+import { MotionBuffer } from "./motion";
 import { spawn } from "./content";
 import type { Pose, Role } from "./content";
 import type { State, Action } from "../../server/autumn/rules";
@@ -25,6 +26,9 @@ class Network extends EventTarget {
   local = spawn(0);
   poses: Record<string, Pose> = {};
   fast: RTCDataChannel | null = null;
+  motion = new MotionBuffer();
+  gesture = "";
+  gestureAt = 0;
   lastPeerPacket = 0;
   lastPacket = 0;
   lastPeer = 0;
@@ -63,6 +67,7 @@ class Network extends EventTarget {
     localStorage.setItem("autumn-device", this.playerId);
     this.local = spawn(role);
     this.poses = {};
+    this.motion.clear();
     this.pending.clear();
     this.update({
       status: "connecting",
@@ -152,6 +157,9 @@ class Network extends EventTarget {
         this.retry = 0;
         this.local = m.pose;
         this.poses = m.poses || {};
+        this.motion.clear();
+        const peerPose = this.poses[1 - m.role];
+        if (peerPose) this.motion.push(peerPose, performance.now());
         this.lastPeer = Date.now();
         this.update({
           status: "connected",
@@ -236,21 +244,16 @@ class Network extends EventTarget {
   acceptPose(p: Pose, direct: boolean) {
     if (!p || ![p.x, p.z, p.y, p.yaw].every(Number.isFinite)) return;
     if (direct) this.lastPeerPacket = Date.now();
-    const old = this.poses[1 - this.snapshot.role];
-    // Server packets remain usable when an OPEN data channel silently stalls.
-    if (
-      !direct &&
-      Date.now() - this.lastPeerPacket < 180 &&
-      old?.seq > p.seq &&
-      old.scene === p.scene
-    )
-      return;
+    if (!this.motion.push(p, performance.now())) return;
     this.poses[1 - this.snapshot.role] = p;
     this.lastPeer = Date.now();
     if (!this.snapshot.peer) this.update({ peer: true });
   }
   move(p: Pose) {
     p.control = this.control;
+    p.gesture =
+      Date.now() + this.clockOffset - this.gestureAt < 1000 ? this.gesture : "";
+    p.gestureAt = this.gestureAt;
     this.local = p;
     const direct = this.fast?.readyState === "open";
     if (direct && this.fast!.bufferedAmount < 12000) {
@@ -288,6 +291,10 @@ class Network extends EventTarget {
       [...this.pending.values()].some((p) => p.action.kind === data.kind)
     )
       return;
+    if (!["sail", "kite"].includes(data.kind)) {
+      this.gesture = data.kind;
+      this.gestureAt = Date.now() + this.clockOffset;
+    }
     const action = {
       ...data,
       at: Date.now() + this.clockOffset,

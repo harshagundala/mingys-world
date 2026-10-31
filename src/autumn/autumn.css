@@ -1299,8 +1299,659 @@
   }
 }
 
-.ll-world { z-index: 0; }
-.ll-hud,.ll-call,.ll-map,.ll-tools,.ll-inventory,.ll-controls-hint { z-index: 30; }
-.ll-world-video.name-only { width: auto; min-width: 70px; height: 27px; padding: 3px 19px 3px 10px; border-width: 1px; border-radius: 15px; }
-.ll-world-video.name-only > span { font-size: 11px; }
-.ll-world-video.name-only i { width: 5px; height: 5px; bottom: 10px; right: 8px; }
+.ll-world {
+  z-index: 0;
+}
+.ll-hud,
+.ll-call,
+.ll-map,
+.ll-tools,
+.ll-inventory,
+.ll-controls-hint {
+  z-index: 30;
+}
+.ll-world-video.name-only {
+  width: auto;
+  min-width: 70px;
+  height: 27px;
+  padding: 3px 19px 3px 10px;
+  border-width: 1px;
+  border-radius: 15px;
+}
+.ll-world-video.name-only > span {
+  font-size: 11px;
+}
+.ll-world-video.name-only i {
+  width: 5px;
+  height: 5px;
+  bottom: 10px;
+  right: 8px;
+}
+
+/* A surveyed compass and a real paper object, kept out of the world's render loop. */
+.ll-map {
+  width: 148px;
+  height: 148px;
+  bottom: 48px;
+  opacity: 1;
+  filter: drop-shadow(0 6px 18px #061d2966);
+}
+.ll-map svg {
+  overflow: visible;
+}
+.ll-map-distance {
+  display: block;
+  text-align: center;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.09em;
+  margin-top: 3px;
+  color: #e3d5b5;
+  text-shadow: 0 1px 5px #102c2b;
+}
+.ll-journal-scene {
+  position: absolute;
+  z-index: 65;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  perspective: 1600px;
+  background: radial-gradient(
+    ellipse at 50% 70%,
+    #10282111 20%,
+    #091e2966 100%
+  );
+  backdrop-filter: blur(2px);
+  animation: ll-journal-shade 0.5s ease both;
+}
+.ll-journal {
+  position: relative;
+  width: min(880px, 100%);
+  color: #3f4437;
+  transform-style: preserve-3d;
+  animation: ll-book-rise 0.85s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  filter: drop-shadow(0 32px 35px #061a2777);
+}
+.ll-journal-pages {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 7px solid #40594a;
+  border-radius: 4px 12px 12px 4px;
+  box-shadow:
+    0 3px 0 #d9cfac,
+    0 5px 0 #8d8e70,
+    0 7px 0 #ddd2b3,
+    0 10px 0 #324639;
+  background: #e6ddbd;
+}
+.ll-journal-page {
+  position: relative;
+  min-height: 486px;
+  padding: 38px 36px 40px;
+  background: radial-gradient(ellipse at 30% 10%, #f6efd6, #e6ddbd 80%);
+}
+.ll-journal-page::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.2;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath filter='url(%23n)' opacity='.3' d='M0 0h180v180H0z'/%3E%3C/svg%3E");
+}
+.ll-journal-left {
+  border-right: 1px solid #796f4933;
+  box-shadow: inset -18px 0 20px -15px #655b4966;
+}
+.ll-journal-right {
+  box-shadow: inset 15px 0 18px -16px #4c443566;
+}
+.ll-journal-running {
+  display: block;
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  color: #73755b;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #93927655;
+}
+.ll-journal h2 {
+  font:
+    400 clamp(25px, 3vw, 39px)/1.1 Georgia,
+    "Times New Roman",
+    serif;
+  letter-spacing: -0.04em;
+  color: #354939;
+  margin: 29px 0 12px;
+  text-wrap: balance;
+}
+.ll-journal-place {
+  font:
+    italic 12px/1.5 Georgia,
+    serif;
+  color: #818065;
+}
+.ll-journal-etching {
+  color: #7d8369;
+  margin: 17px -7px 6px;
+}
+.ll-journal-etching svg {
+  display: block;
+  width: 100%;
+}
+.ll-journal-note {
+  font:
+    italic 14px/1.8 Georgia,
+    serif;
+  color: #72725a;
+  max-width: 260px;
+}
+.ll-pressed-leaf {
+  position: absolute;
+  bottom: 24px;
+  right: 20px;
+  transform: rotate(-25deg);
+  color: #ad643666;
+  filter: drop-shadow(2px 3px 2px #68432322);
+}
+.ll-journal-instruction {
+  font-size: 13px;
+  line-height: 1.9;
+  margin-top: 28px !important;
+}
+.ll-journal .ll-guide-keys {
+  margin: 25px 0;
+  gap: 12px 13px;
+}
+.ll-journal .ll-guide-keys span {
+  font-size: 9px;
+  color: #626853;
+  gap: 5px;
+}
+.ll-journal kbd {
+  color: #4f5a45;
+  border: 1px solid #8a8d6d44;
+  background: #c4b98d14;
+  border-radius: 3px;
+  padding: 3px;
+  font-size: 8px;
+}
+.ll-journal-small {
+  font-size: 10px;
+  line-height: 1.8;
+  color: #80816a;
+}
+.ll-journal-return {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 15px 0 3px;
+  margin-top: 15px;
+  border-top: 1px solid #94927544 !important;
+  background: transparent;
+  font-size: 11px;
+  color: #3f5945 !important;
+}
+.ll-journal-return:hover {
+  color: #92612e !important;
+}
+.ll-journal-folio {
+  position: absolute;
+  bottom: 13px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font:
+    10px Georgia,
+    serif;
+  color: #8c8e72;
+}
+.ll-journal .ll-close {
+  color: #5f6e53;
+  top: 10px;
+  right: 10px;
+  width: 27px;
+  height: 27px;
+}
+.ll-journal .ll-friendly-score {
+  margin-top: 18px;
+  color: #737257;
+  border-color: #94927544;
+}
+.ll-journal-cover {
+  pointer-events: none;
+  position: absolute;
+  inset: 0 50% 0 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 27px;
+  background:
+    repeating-linear-gradient(28deg, #ffffff02 0 1px, transparent 1px 3px),
+    #3c5948;
+  border: 7px double #b0a77477;
+  border-radius: 6px 2px 2px 6px;
+  box-shadow:
+    inset 0 0 0 9px #294635,
+    5px 2px 10px #17281d55;
+  color: #c2b884;
+  transform-origin: right center;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  animation: ll-cover-open 1.05s 0.08s cubic-bezier(0.25, 0.7, 0.2, 1) both;
+}
+.ll-journal-cover span {
+  font:
+    17px Georgia,
+    serif;
+  letter-spacing: 0.15em;
+}
+.ll-journal-cover small {
+  font:
+    italic 10px Georgia,
+    serif;
+}
+.ll-journal-ribbon {
+  position: absolute;
+  width: 17px;
+  height: 80px;
+  background: linear-gradient(90deg, #9f5b39, #bc7d4b 45%, #965a34);
+  top: 98%;
+  left: 55%;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 85%, 0 100%);
+  transform: rotate(-3deg);
+  z-index: -1;
+}
+.ll-journal-scene.closing {
+  pointer-events: none;
+  animation: ll-journal-shade 0.38s ease reverse both;
+}
+.ll-journal-scene.closing .ll-journal {
+  animation: ll-book-away 0.38s ease-in both;
+}
+@keyframes ll-book-rise {
+  from {
+    transform: translateY(65vh) rotateX(52deg) rotateZ(-8deg) scale(0.62);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) rotateX(2deg) rotateZ(-0.5deg) scale(1);
+    opacity: 1;
+  }
+}
+@keyframes ll-cover-open {
+  0% {
+    transform: rotateY(0);
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotateY(175deg);
+    opacity: 0;
+  }
+}
+@keyframes ll-book-away {
+  from {
+    transform: translateY(0) rotateX(2deg) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(40vh) rotateX(35deg) scale(0.8);
+    opacity: 0;
+  }
+}
+@keyframes ll-journal-shade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Chapter cards leave the moving world visible through a cinematic scrim. */
+.ll-story-overlay {
+  background: linear-gradient(
+    90deg,
+    #0b2429e6 0%,
+    #102a2bc9 35%,
+    #102a2b55 65%,
+    #102a2b22 100%
+  );
+  backdrop-filter: none;
+  justify-content: flex-start;
+  padding: 6vh 7vw;
+  animation: ll-chapter-reveal 1s ease both;
+}
+.ll-story {
+  text-align: left;
+  max-width: 560px;
+  padding: 34px 0;
+}
+.ll-story > * {
+  animation: ll-chapter-type 0.7s cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+.ll-story .ll-eyebrow {
+  animation-delay: 0.1s;
+  color: #d7bd84;
+  font-size: 9px;
+}
+.ll-chapter-location {
+  display: block;
+  font:
+    italic 15px/1.5 Georgia,
+    serif;
+  color: #d2d7bc;
+  margin-bottom: 27px;
+}
+.ll-story h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(38px, 4.4vw, 65px);
+  line-height: 1.03;
+  max-width: 540px;
+  margin: 22px 0;
+  text-wrap: balance;
+  animation-delay: 0.2s;
+}
+.ll-story > p {
+  max-width: 440px;
+  font-size: 14px;
+  line-height: 1.9;
+  color: #e2e2c8;
+  animation-delay: 0.3s;
+}
+.ll-story .ll-story-rule {
+  margin: 26px 0;
+  width: 42px;
+  animation-delay: 0.4s;
+}
+.ll-story .ll-story-tip {
+  max-width: 410px;
+  font-size: 12px;
+  line-height: 1.85;
+  color: #c5d0be;
+  animation-delay: 0.45s;
+}
+.ll-story .ll-primary {
+  margin: 27px 0 0;
+  animation-delay: 0.55s;
+}
+.ll-chapter-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.2;
+  background: radial-gradient(ellipse at 80% 50%, #ffdba411, transparent 50%);
+}
+@keyframes ll-chapter-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ll-chapter-type {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+.ll-craft-overlay {
+  background: radial-gradient(ellipse at center, #10262188, #0d2228bb);
+  backdrop-filter: blur(2px);
+}
+.ll-craft {
+  background: linear-gradient(135deg, #344a3cee, #193536ed);
+  border-color: #ddc69644;
+  box-shadow:
+    0 25px 80px #071d2799,
+    inset 0 1px 0 #f4dfb422;
+  animation: ll-craft-arrive 0.6s cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+.ll-craft h2 {
+  margin-bottom: 0;
+}
+.ll-lantern-preview {
+  position: relative;
+  width: 100%;
+  height: 205px;
+  margin: 5px auto 13px;
+  touch-action: none;
+}
+.ll-lantern-preview > span {
+  position: absolute;
+  bottom: 3px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: #c8d1b188;
+  pointer-events: none;
+}
+.ll-craft .ll-shapes {
+  margin: 19px 0;
+}
+.ll-craft .ll-swatches button {
+  transition:
+    transform 0.2s ease,
+    outline-color 0.2s ease;
+}
+.ll-craft .ll-swatches button:hover {
+  transform: translateY(-2px);
+}
+.ll-craft .ll-swatches button:active {
+  transform: scale(0.95);
+}
+@keyframes ll-craft-arrive {
+  from {
+    opacity: 0;
+    transform: perspective(1000px) translateY(50px) rotateX(10deg);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(1000px) translateY(0) rotateX(0);
+  }
+}
+@media (max-width: 760px) {
+  .ll-map {
+    width: 118px;
+    height: 118px;
+    left: 18px;
+    bottom: 43px;
+  }
+  .ll-journal-scene {
+    padding: 18px;
+  }
+  .ll-journal-page {
+    padding: 28px 24px 35px;
+  }
+  .ll-journal .ll-guide-keys {
+    grid-template-columns: 1fr;
+    gap: 7px;
+    margin: 18px 0;
+  }
+  .ll-journal-instruction {
+    font-size: 12px;
+    margin-top: 20px !important;
+  }
+  .ll-story-overlay {
+    padding: 24px 7vw;
+  }
+}
+@media (max-width: 540px) {
+  .ll-map {
+    width: 96px;
+    height: 96px;
+    bottom: 28px;
+    left: 16px;
+  }
+  .ll-map-distance {
+    font-size: 8px;
+  }
+  .ll-journal {
+    width: min(380px, 100%);
+    max-height: 88svh;
+  }
+  .ll-journal-pages {
+    display: block;
+    max-height: 88svh;
+    overflow: auto;
+    border-width: 5px;
+  }
+  .ll-journal-page {
+    min-height: 0;
+    padding: 24px 25px 31px;
+  }
+  .ll-journal-left {
+    border-bottom: 1px solid #79745333;
+    border-right: 0;
+    padding-bottom: 18px;
+  }
+  .ll-journal h2 {
+    font-size: 30px;
+    margin: 20px 0 8px;
+  }
+  .ll-journal-etching {
+    display: none;
+  }
+  .ll-journal-note {
+    font-size: 11px;
+    line-height: 1.65;
+    margin-top: 12px;
+    padding-right: 25px;
+  }
+  .ll-pressed-leaf {
+    right: 3px;
+    bottom: 6px;
+    transform: rotate(-25deg) scale(0.6);
+  }
+  .ll-journal-left .ll-journal-folio {
+    display: none;
+  }
+  .ll-journal-right .ll-journal-running {
+    display: none;
+  }
+  .ll-journal-right .ll-close {
+    position: fixed;
+    top: 9px;
+    right: 9px;
+    background: #e8dfbc;
+    z-index: 3;
+  }
+  .ll-journal-instruction {
+    margin-top: 0 !important;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+  .ll-journal .ll-guide-keys {
+    grid-template-columns: 1fr 1fr;
+    gap: 9px 10px;
+  }
+  .ll-journal-cover {
+    right: 0;
+    transform-origin: left center;
+  }
+  .ll-journal-ribbon {
+    height: 30px;
+  }
+  .ll-chapter-location {
+    font-size: 12px;
+    margin-bottom: 17px;
+  }
+  .ll-story h2 {
+    font-size: 39px;
+    margin: 18px 0;
+  }
+  .ll-story > p {
+    font-size: 13px;
+  }
+  .ll-story .ll-story-tip {
+    font-size: 11px;
+  }
+  .ll-story .ll-story-rule {
+    margin: 19px 0;
+  }
+  .ll-story .ll-primary {
+    margin-top: 22px;
+  }
+  .ll-lantern-preview {
+    height: 170px;
+  }
+}
+@media (max-height: 700px) {
+  .ll-journal-page {
+    min-height: 0;
+  }
+  .ll-journal-pages {
+    max-height: 88svh;
+    overflow: auto;
+  }
+  .ll-journal-etching {
+    max-height: 85px;
+    overflow: hidden;
+  }
+  .ll-lantern-preview {
+    height: 145px;
+  }
+  .ll-story {
+    padding: 12px 0;
+  }
+  .ll-story h2 {
+    font-size: 38px;
+  }
+  .ll-chapter-location {
+    margin-bottom: 12px;
+  }
+  .ll-story .ll-story-rule {
+    margin: 17px 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ll-journal-scene,
+  .ll-journal,
+  .ll-journal-scene.closing,
+  .ll-journal-scene.closing .ll-journal,
+  .ll-story-overlay,
+  .ll-story > *,
+  .ll-craft {
+    animation: none;
+  }
+  .ll-journal-cover {
+    display: none;
+    animation: none;
+  }
+  .ll-craft .ll-swatches button {
+    transition: none;
+  }
+}
+.ll-lantern-preview::before {
+  content: "";
+  position: absolute;
+  width: 190px;
+  height: 150px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse, #f5d6a21c, transparent 65%);
+  pointer-events: none;
+}
+@media (max-width: 540px) {
+  .ll-story-overlay {
+    background: linear-gradient(90deg, #0b2429e6, #102a2ba6);
+  }
+}

@@ -5,6 +5,7 @@ class Soundscape {
   timer = 0;
   phase = 0;
   beat = 0;
+  noise: AudioBuffer | null = null;
   start() {
     this.ctx ||= new AudioContext();
     if (!this.gain) {
@@ -67,7 +68,35 @@ class Soundscape {
     );
   }
   step() {
-    this.note(60 + Math.random() * 30, 0.06, 0.1, "triangle");
+    this.note(65 + Math.random() * 20, 0.07, 0.09, "triangle");
+    if (!this.enabled || !this.ctx || !this.gain) return;
+    if (!this.noise) {
+      this.noise = this.ctx.createBuffer(
+        1,
+        Math.floor(this.ctx.sampleRate * 0.18),
+        this.ctx.sampleRate,
+      );
+      const data = this.noise.getChannelData(0);
+      for (let i = 0; i < data.length; i++)
+        data[i] = (Math.random() * 2 - 1) * Math.exp((-i / data.length) * 5);
+    }
+    const source = this.ctx.createBufferSource(),
+      filter = this.ctx.createBiquadFilter(),
+      gain = this.ctx.createGain();
+    source.buffer = this.noise;
+    source.playbackRate.value = 0.8 + Math.random() * 0.4;
+    filter.type = "lowpass";
+    filter.frequency.value = 1700;
+    gain.gain.value = 0.11;
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.gain);
+    source.start();
+    source.onended = () => {
+      source.disconnect();
+      filter.disconnect();
+      gain.disconnect();
+    };
   }
   tap() {
     this.note(180, 0.12, 0.3, "triangle");

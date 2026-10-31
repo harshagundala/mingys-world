@@ -68,7 +68,7 @@ test("server movement replaces a silently stalled open peer channel", () => {
   net.ws.receive({
     type: "pose",
     role: 1,
-    pose: { ...spawn(1), x: 5, seq: 99 },
+    pose: { ...spawn(1), x: 5, seq: 101 },
   });
   assert.equal(net.poses[1].x, 5);
   net.leave();

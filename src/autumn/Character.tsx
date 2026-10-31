@@ -2,16 +2,19 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as T from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { Lantern, Produce } from "./Models";
 import { net } from "./network";
+import { indexGeometry } from "./indexGeometry";
 import type { Pose, Role } from "./content";
 
 type Part = {
-  shape?: "box" | "sphere" | "capsule" | "cylinder" | "torus";
+  shape?: "box" | "sphere" | "capsule" | "cylinder" | "torus" | "smile";
   p: number[];
   s: number[];
   c: string;
   r?: number[];
+  blush?: boolean;
 };
 const skin = ["#b37c59", "#ce9672"];
 const coat = ["#c08a43", "#568c89"];
@@ -61,24 +64,47 @@ function Detail({
       q = new T.Quaternion(),
       p = new T.Vector3(),
       s = new T.Vector3(),
-      color = new T.Color();
+      color = new T.Color(),
+      paint = new T.Color(),
+      blush = new T.Color("#d59580");
     const list = parts.map((part) => {
       let g: T.BufferGeometry;
       switch (part.shape) {
         case "sphere":
-          g = new T.SphereGeometry(1, 16, 12);
+          g = new T.SphereGeometry(1, 24, 16);
           break;
         case "capsule":
-          g = new T.CapsuleGeometry(0.5, 1, 6, 12);
+          g = new T.CapsuleGeometry(0.5, 1, 6, 20);
           break;
         case "cylinder":
-          g = new T.CylinderGeometry(0.85, 1, 1, 16);
+          g = new T.CylinderGeometry(0.85, 1, 1, 20);
           break;
         case "torus":
           g = new T.TorusGeometry(1, 0.13, 6, 20);
           break;
+        case "smile":
+          g = new T.TubeGeometry(
+            new T.QuadraticBezierCurve3(
+              new T.Vector3(-0.052, 0, 0),
+              new T.Vector3(0, -0.025, 0.006),
+              new T.Vector3(0.052, 0, 0),
+            ),
+            16,
+            0.005,
+            6,
+            false,
+          );
+          break;
         default:
-          g = new T.BoxGeometry(1, 1, 1);
+          g =
+            Math.min(...part.s) > 0.025
+              ? new RoundedBoxGeometry(1, 1, 1, 2, 0.13)
+              : new T.BoxGeometry(1, 1, 1);
+      }
+      if (g.index) {
+        const nonIndexed = g.toNonIndexed();
+        g.dispose();
+        g = nonIndexed;
       }
       p.fromArray(part.p);
       s.fromArray(part.s);
@@ -90,15 +116,29 @@ function Detail({
       const colors = new Float32Array(g.attributes.position.count * 3);
       color.set(part.c);
       for (let i = 0; i < colors.length; i += 3) {
-        colors[i] = color.r;
-        colors[i + 1] = color.g;
-        colors[i + 2] = color.b;
+        paint.copy(color);
+        if (part.blush) {
+          const v = i / 3,
+            vertex = g.attributes.position;
+          const dx = (Math.abs(vertex.getX(v)) - 0.145) / 0.1,
+            dy = (vertex.getY(v) + 0.055) / 0.065;
+          const weight =
+            Math.max(0, 1 - dx * dx - dy * dy) *
+            T.MathUtils.smoothstep(vertex.getZ(v), 0.1, 0.18) *
+            0.36;
+          paint.lerp(blush, weight);
+        }
+        colors[i] = paint.r;
+        colors[i + 1] = paint.g;
+        colors[i + 2] = paint.b;
       }
       g.setAttribute("color", new T.BufferAttribute(colors, 3));
       return g;
     });
-    const result = mergeGeometries(list)!;
+    const merged = mergeGeometries(list)!;
     list.forEach((g) => g.dispose());
+    const result = indexGeometry(merged);
+    merged.dispose();
     return result;
   }, [parts]);
   useEffect(() => () => geo.dispose(), [geo]);
@@ -251,84 +291,113 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
       {
         shape: "sphere",
         p: [0, 0, 0],
-        s: [0.211, 0.247, 0.204],
+        s: [0.236, 0.242, 0.216],
         c: skin[role],
+        blush: true,
       },
       {
         shape: "sphere",
-        p: [0, -0.035, 0.204],
-        s: [0.036, 0.048, 0.043],
+        p: [0, -0.032, 0.215],
+        s: [0.027, 0.03, 0.033],
         c: skin[role],
       },
       {
-        shape: "sphere",
-        p: [0, -0.119, 0.183],
-        s: [0.05, 0.008, 0.015],
-        c: "#87513e",
+        shape: "smile",
+        p: [0, -0.094, 0.205],
+        s: [1, 1, 1],
+        c: role ? "#9c5e48" : "#81503c",
       },
       ...[-1, 1].map((side) => ({
         shape: "sphere" as const,
-        p: [side * 0.207, -0.01, -0.005],
-        s: [0.041, 0.063, 0.038],
+        p: [side * 0.231, -0.008, -0.008],
+        s: [0.036, 0.052, 0.031],
         c: skin[role],
       })),
     ];
     const hair: Part[] = [
       {
         shape: "sphere",
-        p: [0, 0.14, -0.025],
-        s: [0.217, 0.14, 0.201],
-        c: "#332823",
+        p: [0, 0.145, -0.032],
+        s: [0.242, 0.127, 0.218],
+        c: "#352b28",
       },
       ...[-1, 1].map((side) => ({
         shape: "sphere" as const,
-        p: [side * 0.183, 0.06, -0.056],
-        s: [0.045, role ? 0.18 : 0.11, 0.14],
-        c: "#332823",
+        p: [side * (role ? 0.22 : 0.209), role ? -0.045 : 0.055, -0.07],
+        s: [role ? 0.06 : 0.045, role ? 0.24 : 0.09, 0.146],
+        c: "#352b28",
       })),
     ];
     if (role)
+      hair.push(
+        {
+          shape: "sphere",
+          p: [0, -0.05, -0.15],
+          s: [0.224, 0.255, 0.099],
+          c: "#352b28",
+        },
+        {
+          shape: "sphere",
+          p: [-0.175, 0.125, 0.1],
+          s: [0.06, 0.075, 0.085],
+          r: [0, 0, -0.45],
+          c: "#3e302c",
+        },
+      );
+    if (role) {
+      for (const side of [-1, 1])
+        hair.push({
+          shape: "sphere",
+          p: [side * 0.214, -0.118, 0.065],
+          s: [0.06, 0.143, 0.071],
+          r: [0, 0, side * 0.13],
+          c: "#3a2c28",
+        });
       hair.push({
-        shape: "sphere",
-        p: [0, -0.015, -0.13],
-        s: [0.2, 0.22, 0.105],
-        c: "#332823",
+        shape: "capsule",
+        p: [0.194, 0.118, 0.112],
+        s: [0.014, 0.039, 0.014],
+        r: [0, 0, -0.45],
+        c: "#cfb17a",
       });
-    for (let i = 0; i < 7; i++)
+    }
+    // Broad swept locks read as a sculpted silhouette instead of separate scalp beads.
+    for (let i = 0; i < 4; i++)
       hair.push({
         shape: "sphere",
-        p: [-0.15 + i * 0.047, 0.16 + Math.sin(i) * 0.018, 0.1],
-        s: [0.06, 0.055, 0.088],
-        c: i % 2 ? "#342923" : "#423128",
-        r: [0, 0, 0.3],
+        p: [-0.145 + i * 0.085, 0.16 + Math.sin(i * 0.9) * 0.017, 0.111],
+        s: [0.093, 0.05, 0.1],
+        c: i % 2 ? "#3d302c" : "#372b27",
+        r: [-0.12, 0, role ? -0.32 : 0.32],
       });
     const eyeDetails: Part[] = [];
     for (const side of [-1, 1]) {
       eyeDetails.push(
         {
           shape: "sphere",
-          p: [side * 0.076, 0.025, 0.183],
-          s: [0.037, 0.02, 0.023],
-          c: "#f4ead9",
+          p: [side * 0.082, 0.023, 0.2],
+          s: [0.032, 0.038, 0.019],
+          c: "#3a2a24",
         },
         {
           shape: "sphere",
-          p: [side * 0.076, 0.025, 0.204],
-          s: [0.017, 0.017, 0.009],
-          c: "#372d24",
+          p: [side * 0.077, 0.034, 0.218],
+          s: [0.009, 0.011, 0.004],
+          c: "#fff0d5",
         },
         {
           shape: "sphere",
-          p: [side * 0.07, 0.031, 0.213],
-          s: [0.005, 0.005, 0.003],
-          c: "#fff6db",
+          p: [side * 0.088, 0.01, 0.219],
+          s: [0.004, 0.005, 0.003],
+          c: "#be936c",
         },
       );
       hair.push({
-        p: [side * 0.079, 0.072, 0.188],
-        s: [0.074, 0.013, 0.012],
-        c: "#3d2b25",
-        r: [0, 0, side * 0.06],
+        shape: "capsule",
+        p: [side * 0.084, 0.082, 0.19],
+        s: [0.013, 0.035, 0.012],
+        c: "#48322a",
+        r: [0, 0, Math.PI / 2 + side * 0.09],
       });
     }
     return { jacket, leather, metal, face, hair, eyeDetails };
@@ -502,7 +571,12 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
     );
     const act = action.current,
       throwing = p.gesture === "throw",
-      hitting = p.gesture === "hit";
+      hitting = p.gesture === "hit",
+      waving = p.gesture === "wave" && age >= 0 && age < 0.95,
+      waveAmount = waving
+        ? Math.sin((Math.min(1, age / 0.18) * Math.PI) / 2) *
+          (1 - T.MathUtils.smoothstep(age, 0.68, 0.95))
+        : 0;
     if (root.current) {
       root.current.position.y =
         Math.abs(stride) * 0.025 * walk - bounce.current;
@@ -576,6 +650,7 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
         );
       if (arm) {
         const carry = i === 1 && (!!held || !!lantern);
+        const wave = i === (held || lantern ? 0 : 1) ? waveAmount : 0;
         const poseAction =
           i === 1
             ? throwing
@@ -586,20 +661,39 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
             : -0.25 * act;
         arm.rotation.x = T.MathUtils.damp(
           arm.rotation.x,
-          carry ? -0.32 : air ? -0.28 : step * -0.39 * walk + poseAction,
+          wave > 0.01
+            ? -0.25 * wave
+            : carry
+              ? -0.32
+              : air
+                ? -0.28
+                : step * -0.39 * walk + poseAction,
           14,
           dt,
         );
-        arm.rotation.z = (i ? -0.06 : 0.06) + (air ? (i ? -0.16 : 0.16) : 0);
+        arm.rotation.z = T.MathUtils.damp(
+          arm.rotation.z,
+          wave > 0.01
+            ? (i ? 1 : -1) * (2.15 + Math.sin(age * 20) * 0.12) * wave
+            : (i ? -0.06 : 0.06) + (air ? (i ? -0.16 : 0.16) : 0),
+          16,
+          dt,
+        );
       }
-      if (elbow)
+      if (elbow) {
+        const wave = i === (held || lantern ? 0 : 1) ? waveAmount : 0;
+        elbow.rotation.z = wave * Math.sin(age * 20) * 0.22;
         elbow.rotation.x = T.MathUtils.damp(
           elbow.rotation.x,
-          (i === 1 && (held || lantern) ? -0.78 : -0.1 - run * 0.5) -
-            (i === 1 ? 0.7 * act : 0),
+          (wave > 0.01
+            ? -0.65 * wave
+            : i === 1 && (held || lantern)
+              ? -0.78
+              : -0.1 - run * 0.5) - (i === 1 ? 0.7 * act : 0),
           14,
           dt,
         );
+      }
     }
     if (carryRef.current && lantern)
       carryRef.current.rotation.x =
@@ -641,7 +735,7 @@ export function Character({ role, pose, held = "", lantern }: CharacterProps) {
         <group ref={tail} position={[0.145, 1.34, 0.218]}>
           <Detail parts={scarfParts} textile />
         </group>
-        <group ref={head} position={[0, 1.615, 0]}>
+        <group ref={head} position={[0, 1.615, 0]} scale={1.07}>
           <Detail parts={parts.face} />
           <Detail parts={parts.hair} />
           <group ref={eyes}>

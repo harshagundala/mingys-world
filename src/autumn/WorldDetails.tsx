@@ -676,7 +676,8 @@ function Architecture() {
               0.13 + rand(row + col) * 0.012,
               -2.63 + col * 0.585,
             );
-            o.scale.set(0.5, 0.028, 0.575);
+            // Small joints between tiles prevent overlapping coplanar edges.
+            o.scale.set(0.475, 0.028, 0.565);
             o.rotation.set(0, 0, 0);
             o.updateMatrix();
             matrix
@@ -706,18 +707,21 @@ function Architecture() {
           part([x + side * 0.37, 1.85, 2.665], [0.15, 1.13, 0.025], "#d9c99f");
         }
         part([x, 2.37, 2.67], [1, 0.14, 0.025], "#e0cfaa");
-        part([x, 1.1, 2.93], [1.55, 0.2, 0.035], "#8e6447");
+        part([x, 1.1, 3.01], [1.55, 0.2, 0.035], "#8e6447");
         for (let i = 0; i < 5; i++)
-          part([x - 0.6 + i * 0.3, 1.1, 2.96], [0.025, 0.2, 0.025], "#b48c60");
+          part([x - 0.6 + i * 0.3, 1.1, 3.05], [0.025, 0.2, 0.025], "#b48c60");
       }
-      for (let i = 0; i < 9; i++)
+      for (let i = 0; i < 9; i++) {
+        // Foundation facing ends at the doorway instead of crossing the threshold.
+        if (i >= 3 && i <= 5) continue;
         part(
           [-2.8 + i * 0.7, 0.15, 2.59],
           [0.62, 0.2, 0.09],
           i % 2 ? "#9a9480" : "#b3aa94",
         );
+      }
       // Door brass kick plate and trim remain clear of the gameplay lane.
-      part([0, 0.2, 2.57], [1.05, 0.18, 0.03], "#aa8f58");
+      part([0, 0.2, 2.62], [1.05, 0.18, 0.03], "#aa8f58");
       part([-0.66, 1.1, 2.57], [0.08, 2.2, 0.08], "#846245");
       part([0.66, 1.1, 2.57], [0.08, 2.2, 0.08], "#846245");
       part([0, 2.21, 2.57], [1.4, 0.13, 0.1], "#846245");
@@ -874,6 +878,15 @@ export function BuiltBridge({ s }: { s: State }) {
   return (
     <group position={[0, 0, -58]}>
       <Box p={[0, 0.18, 0]} s={[7, 0.36, 4]} color="#8c7250" />
+      {s.bridge >= 6 && (
+        <group position={[0, 0, -18.5]}>
+          <Box p={[0, 0.18, 0]} s={[7, 0.36, 4]} color="#8c7250" />
+          <Sign text="ALMOST SENSIBLE →" p={[0, 1.9, -2.1]} width={2.8} />
+          {[-3, 3].map((x) => (
+            <Pole key={x} p={[x, 0.7, 0]} r={0.11} h={1.4} />
+          ))}
+        </group>
+      )}
       {Array.from({ length: s.bridge }, (_, i) => (
         <group key={i} position={[0, 0, -3 - i * 2.5]}>
           {Array.from({ length: 5 }, (_, j) => (

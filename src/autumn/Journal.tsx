@@ -5,7 +5,7 @@ import type { State } from "../../server/autumn/rules";
 
 const keys = [
   ["W A S D", "Walk"],
-  ["Mouse", "Look around"],
+  ["Mouse / trackpad", "Look"],
   ["E", "Use / gather"],
   ["Shift", "Run"],
   ["Space", "Jump"],
@@ -13,17 +13,33 @@ const keys = [
   ["Q", "Call your Mingy"],
   ["Esc", "Release mouse / menu"],
 ];
-const notes = [
-  "Two tickets. No return time. A pressed maple leaf between them.",
-  "The best apples are never quite the same color. Neither are the best evenings.",
-  "Measure twice. Laugh as often as necessary. Leave your initials somewhere only you will notice.",
-  "A river remembers the shape of everything it passes. Take the long way.",
-  "A warm plate is a small way of saying: you belong here.",
-  "House rules: enthusiasm counts. Dignity is optional.",
-  "The wind is not in a hurry. Listen before you pull.",
-  "Write a wish small enough to carry. Let the sky make room for it.",
-  "Keep this leaf. It was here with you.",
-];
+// These observations follow saved progress, so a refresh never retells a future event.
+function currentNote(s: State) {
+  if (
+    s.phase === 1 &&
+    Object.values(s.harvest).reduce((a, b) => a + b, 0) >= 15
+  )
+    return "The cart smells of apples and wet leaves. There will be enough for a proper supper. Somewhere, the keeper has underlined the word ‘everyone.’";
+  if (s.phase === 2 && s.bridge >= 3)
+    return "The crossing is taking shape. The boards are different colors, but every joint holds. No one will mistake this bridge for something made by strangers.";
+  if (s.phase === 3 && s.boat.stop >= 2)
+    return "Paper from Willow Bend. Wicks from The Little Landing. One more parcel at Moonwater, and the town will have everything it needs to make its own stars.";
+  if (s.phase === 3 && s.boat.stop >= 1)
+    return "Inside the first parcel: folded lantern paper, kept perfectly dry. Its label says: ‘For the wishes you haven’t thought of yet.’";
+  if (s.phase === 4 && s.order >= 4)
+    return "The tables are filling. The harvest you carried through the orchard is becoming someone’s favorite part of the evening.";
+  if (s.phase === 5 && s.fair.round >= 2) {
+    const [a, b] = s.fair.scores;
+    return a === b
+      ? "The championship is tied. The official regulations recommend looking very serious about this, then throwing another pumpkin."
+      : `${names[a > b ? 0 : 1]} is ahead and is therefore treating this as a legitimate sport. The official regulations remain suspiciously silent on technique.`;
+  }
+  if (s.phase === 6 && s.towers.length >= 3)
+    return "The towers are finding the wind again. From here, the bridge and the supper tables belong to the same small, glowing town. You have been putting it back together.";
+  if (s.phase === 7 && Object.keys(s.lanterns).length >= 6)
+    return "The meadow is filling with wishes. Paper from the river, light from the station, and all the little choices that make this evening yours.";
+  return acts[s.phase].note;
+}
 export function Journal({
   open,
   s,
@@ -138,7 +154,7 @@ export function Journal({
                 />
               </svg>
             </div>
-            <p className="ll-journal-note">{notes[s.phase]}</p>
+            <p className="ll-journal-note">{currentNote(s)}</p>
             <div className="ll-pressed-leaf" aria-hidden="true">
               <Leaf size={63} strokeWidth={0.8} />
             </div>
@@ -166,8 +182,9 @@ export function Journal({
               ))}
             </div>
             <p className="ll-journal-small">
-              Click the world to capture the mouse. Right-drag also works. Your
-              place in the story is saved.
+              Two-finger drag over the world looks around without clicking. For
+              mouse look, click the world or right-drag. Escape releases the
+              mouse. Your evening is saved.
             </p>
             {s.phase === 1 && (
               <div className="ll-friendly-score">

@@ -10,6 +10,21 @@ export const input = {
   holding: 0,
   jumpQueued: false,
 };
+
+/** Trackpads deliver two-finger panning as wheel events, even without a click. */
+export function trackpadLook(e: WheelEvent) {
+  // Pinch-to-zoom and modifier gestures belong to the browser, and menus scroll normally.
+  if (input.blocked || e.ctrlKey || e.metaKey || e.altKey) return;
+  e.preventDefault();
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 200 : 1;
+  const bounded = (delta: number) =>
+    Number.isFinite(delta) ? Math.max(-120, Math.min(120, delta * unit)) : 0;
+  input.yaw -= bounded(e.deltaX) * 0.003 * input.sensitivity;
+  input.pitch = Math.max(
+    -1.15,
+    Math.min(1.15, input.pitch - bounded(e.deltaY) * 0.003 * input.sensitivity),
+  );
+}
 export function setupInput(
   onAction: (down: boolean) => void,
   onHelp: () => void,

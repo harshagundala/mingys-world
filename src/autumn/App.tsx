@@ -99,16 +99,15 @@ function Meter({
   hold?: boolean;
   label?: string;
 }) {
-  const [position, setPosition] = useState(0);
+  const marker = useRef<HTMLElement>(null);
   useEffect(() => {
     let id = 0;
     const tick = () => {
-      setPosition(
-        skillPhase(
-          start,
-          hold ? performance.now() : Date.now() + net.clockOffset,
-        ),
+      const position = skillPhase(
+        start,
+        hold ? performance.now() : Date.now() + net.clockOffset,
       );
+      if (marker.current) marker.current.style.left = `${position * 100}%`;
       id = requestAnimationFrame(tick);
     };
     id = requestAnimationFrame(tick);
@@ -119,10 +118,39 @@ function Meter({
       <span>{label}</span>
       <div className="ll-meter-track">
         <i className="ll-meter-gold" />
-        <b style={{ left: `${position * 100}%` }} />
+        <b ref={marker} style={{ left: "0%" }} />
       </div>
     </div>
   );
+}
+// Animate the tiny HUD markers without reconciling the entire game world.
+function ChargeBar({ start }: { start: number }) {
+  const bar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    let id = 0;
+    const tick = () => {
+      if (bar.current)
+        bar.current.style.transform = `scaleX(${Math.min(1, (performance.now() - start) / 1500)})`;
+      id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [start]);
+  return <i ref={bar} className="ll-charge-fill" />;
+}
+function KiteWindBand({ tower }: { tower: number }) {
+  const band = useRef<HTMLElement>(null);
+  useEffect(() => {
+    let id = 0;
+    const tick = () => {
+      if (band.current)
+        band.current.style.left = `${(Math.sin((Date.now() + net.clockOffset) / 3300 + tower) * 0.65 + 1) * 50}%`;
+      id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [tower]);
+  return <i ref={band} />;
 }
 function Preview({ large = false }: { large?: boolean }) {
   const ref = useRef<HTMLVideoElement>(null),
@@ -229,7 +257,6 @@ function Game() {
     [music, setMusic] = useState(true),
     [craft, setCraft] = useState({ color: 0, shape: 0, wish: 0 }),
     [copied, setCopied] = useState(false),
-    [now, setNow] = useState(Date.now()),
     [sail, setSail] = useState(0),
     [kite, setKite] = useState(0),
     [endHidden, setEndHidden] = useState(false);
@@ -277,12 +304,10 @@ function Game() {
     net.addEventListener("notice", onNotice);
     net.addEventListener("ping-mark", ping);
     media.addEventListener("change", onMedia);
-    const t = setInterval(() => setNow(Date.now()), 120);
     return () => {
       net.removeEventListener("notice", onNotice);
       net.removeEventListener("ping-mark", ping);
       media.removeEventListener("change", onMedia);
-      clearInterval(t);
       clearTimeout(toastTimer.current);
     };
   }, [notify]);
@@ -427,6 +452,8 @@ function Game() {
         action,
         () => setModal((m) => (m === "help" ? null : "help")),
         () => {
+          net.gesture = "wave";
+          net.gestureAt = Date.now() + net.clockOffset;
           net.send({ type: "ping-mark" });
           notify("You called your Mingy over.");
           sound.chime();
@@ -654,18 +681,12 @@ function Game() {
                 <Progress s={s} role={role} />
               </div>
             </div>
-            <div className="ll-status">
-              <i
-                className={snapshot.status === "connected" ? "connected" : ""}
-              />
-              <span>
-                {snapshot.status !== "connected"
-                  ? "Reconnecting…"
-                  : snapshot.pending
-                    ? "Saving…"
-                    : "Saved"}
-              </span>
-            </div>
+            {snapshot.status !== "connected" && (
+              <div className="ll-status" role="status">
+                <i />
+                <span>Reconnecting…</span>
+              </div>
+            )}
           </header>
           <div className="ll-call">
             <Preview />
@@ -709,15 +730,7 @@ function Game() {
                     <div className="ll-meter">
                       <span>Follow the arc. Release E to throw.</span>
                       <div className="ll-meter-track">
-                        <i
-                          style={{
-                            display: "block",
-                            height: "100%",
-                            width: `${Math.min(100, (performance.now() - holding) / 15)}%`,
-                            background: "#e6b568",
-                            borderRadius: 5,
-                          }}
-                        />
+                        <ChargeBar start={holding} />
                       </div>
                     </div>
                   ) : (
@@ -817,11 +830,7 @@ function Game() {
                 HOLD THE WIND · A / D · E TO PUT DOWN
               </span>
               <div className="ll-wind-track">
-                <i
-                  style={{
-                    left: `${(Math.sin((now + net.clockOffset) / 3300 + s.kite.tower) * 0.65 + 1) * 50}%`,
-                  }}
-                />
+                <KiteWindBand tower={s.kite.tower} />
                 <b style={{ left: `${(kite + 1) * 50}%` }} />
               </div>
               <p>
@@ -892,7 +901,8 @@ function Game() {
             </button>
           </nav>
           <div className="ll-controls-hint">
-            WASD move <i /> Mouse look <i /> E interact <i /> H help
+            WASD move <i /> Mouse / two-finger look <i /> E interact <i /> H
+            help
           </div>
         </>
       )}

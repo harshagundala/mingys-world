@@ -7,6 +7,7 @@ import { WindMaterial } from "./Landscape";
 import { riverGroundHeight } from "./RiverTerrain";
 import { pbrTextures, instanceBarkUV } from "./materials";
 import { StaticGeometry } from "./StaticGeometry";
+import { indexGeometry } from "./indexGeometry";
 import { rand, colors } from "./content";
 import type { Role } from "./content";
 export const mat = {
@@ -47,6 +48,9 @@ function boxGeometry(size: number[]) {
     uv.setXY(i, values[axes[0]] * 0.65, values[axes[1]] * 0.65);
   }
   uv.needsUpdate = true;
+  const compact = indexGeometry(g);
+  g.dispose();
+  g = compact;
   boxGeometries.set(key, g);
   return g;
 }
@@ -446,11 +450,13 @@ export function Cottage({
           </group>
         ))}
         <Box p={[0, 2.8, 2.44]} s={[6, 0.17, 0.17]} />
-        {[-2.85, 0, 2.85].map((x) => (
+        {[-2.85, 2.85].map((x) => (
           <Box key={x} p={[x, 1.7, 2.45]} s={[0.18, 3, 0.2]} />
         ))}
-        <Box p={[0, 1.05, 2.47]} s={[1.18, 2.1, 0.16]} color="#385b58" />
-        <Orb p={[0.38, 1.07, 2.6]} s={[0.045, 0.045, 0.045]} color="#dca84f" />
+        {/* The center timber ends above the doorway; coplanar door/post faces shimmer. */}
+        <Box p={[0, 2.75, 2.45]} s={[0.18, 0.9, 0.2]} />
+        <Box p={[0, 1.05, 2.51]} s={[1.18, 2.1, 0.16]} color="#385b58" />
+        <Orb p={[0.38, 1.07, 2.64]} s={[0.045, 0.045, 0.045]} color="#dca84f" />
         {[-1.8, 1.8].map((x) => (
           <group key={x}>
             <Box p={[x, 1.85, 2.5]} s={[1.22, 1.36, 0.12]} color="#4e483b" />
@@ -461,7 +467,13 @@ export function Cottage({
               glow={1.2}
             />
             <Box p={[x, 1.85, 2.64]} s={[0.06, 1.25, 0.05]} />
-            <Box p={[x, 1.85, 2.64]} s={[1.1, 0.06, 0.05]} />
+            {[-1, 1].map((side) => (
+              <Box
+                key={side}
+                p={[x + side * 0.29, 1.85, 2.64]}
+                s={[0.52, 0.06, 0.05]}
+              />
+            ))}
             <Box p={[x, 1.1, 2.7]} s={[1.5, 0.18, 0.55]} color="#79523b" />
             <Orb p={[x, 1.28, 2.8]} s={[0.6, 0.15, 0.17]} color="#7b8c51" />
           </group>

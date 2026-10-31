@@ -1,14 +1,15 @@
 // Explicitly isolated development QA only. Never edits the public adventure.
 import { redis } from "../server/store.ts";
 import { initialState } from "../server/autumn/rules.ts";
-const [room, phaseString] = process.argv.slice(2),
+const [room, phaseString, mode] = process.argv.slice(2),
   phase = Number(phaseString);
 if (
   !room?.startsWith("qa-") ||
   !process.env.AUTUMN_WORLD_KEY?.includes("qa-") ||
   !Number.isInteger(phase) ||
   phase < 0 ||
-  phase > 8
+  phase > 8 ||
+  (mode !== undefined && !(mode === "--landing" && phase === 3))
 )
   throw new Error("Use an explicit QA room and namespace.");
 const key = `${process.env.AUTUMN_WORLD_KEY}:${room}`;
@@ -42,7 +43,7 @@ if (phase === 2) {
   s.timber = 18;
 }
 if (phase === 3) {
-  s.boarded = [0, 1];
+  s.boarded = mode === "--landing" ? [] : [0, 1];
   s.boat.at = Date.now();
 }
 if (phase >= 7) {

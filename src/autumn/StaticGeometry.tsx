@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import * as T from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { indexGeometry } from "./indexGeometry";
 
 /** Explicitly static scenery only. Moving/gameplay objects stay outside this group. */
 export function StaticGeometry({
@@ -43,9 +44,9 @@ export function StaticGeometry({
     for (const originals of buckets.values()) {
       if (originals.length < 2) continue;
       const geometries = originals.map((mesh) => {
-        const geometry = mesh.geometry.index
-          ? mesh.geometry.toNonIndexed()
-          : mesh.geometry.clone();
+        // Keep the GPU vertex cache useful across every main, reflected and shadow pass.
+        // Expanding indexed spheres/cylinders here previously multiplied their work.
+        const geometry = indexGeometry(mesh.geometry);
         geometry.clearGroups();
         geometry.applyMatrix4(
           new T.Matrix4().multiplyMatrices(inverse, mesh.matrixWorld),
@@ -55,6 +56,7 @@ export function StaticGeometry({
       const geometry = mergeGeometries(geometries, false);
       geometries.forEach((part) => part.dispose());
       if (!geometry) continue;
+      geometry.computeBoundingBox();
       geometry.computeBoundingSphere();
       const source = originals[0];
       const mesh = new T.Mesh(geometry, source.material);

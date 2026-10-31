@@ -204,10 +204,20 @@
   overflow: hidden;
   isolation: isolate;
   touch-action: none;
+  overscroll-behavior: none;
 }
 .ll-world {
   position: absolute;
   inset: 0;
+}
+.ll-charge-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
+  background: #e6b568;
+  border-radius: 5px;
 }
 .ll-loading,
 .ll-recovery {

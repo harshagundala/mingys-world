@@ -1,5 +1,6 @@
 import {
   Suspense,
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -25,7 +26,7 @@ import { RenderBudget } from "./RenderBudget";
 import { StaticGeometry } from "./StaticGeometry";
 import { net } from "./network";
 import { media } from "./media";
-import { input } from "./controls";
+import { input, trackpadLook } from "./controls";
 import { sound } from "./sound";
 import {
   colors,
@@ -250,6 +251,7 @@ function Village({ s }: { s: State }) {
         />
       </group>
       <BuiltBridge s={s} />
+      {s.phase === 3 && <MooredBoat />}
       <group position={[0, 0, 13]}>
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
           <ringGeometry args={[1.3, 1.65, 20]} />
@@ -273,6 +275,49 @@ function Village({ s }: { s: State }) {
         />
       </group>
     </>
+  );
+}
+function MooredBoat() {
+  const hull = useRef<T.Group>(null);
+  useFrame(({ clock }) => {
+    if (!hull.current) return;
+    hull.current.position.y = Math.sin(clock.elapsedTime * 1.1) * 0.025;
+    hull.current.rotation.z = Math.sin(clock.elapsedTime * 0.8) * 0.012;
+  });
+  return (
+    <group position={[5.1, 0.05, -75.5]} rotation={[0, Math.PI / 2, 0]}>
+      <group ref={hull}>
+        <StaticGeometry>
+          <Box p={[0, 0.21, 0]} s={[2.4, 0.3, 4.8]} color="#83603f" />
+          {[-1, 1].map((side) => (
+            <Box
+              key={side}
+              p={[side * 1.2, 0.51, 0]}
+              s={[0.16, 0.7, 4.9]}
+              color="#a0754a"
+            />
+          ))}
+          {[-2.3, 2.3].map((z) => (
+            <Box
+              key={z}
+              p={[0, 0.51, z]}
+              s={[2.4, 0.7, 0.15]}
+              color="#a0754a"
+            />
+          ))}
+          {[-1.3, 1.2].map((z) => (
+            <Box
+              key={z}
+              p={[0, 0.61, z]}
+              s={[2.3, 0.1, 0.45]}
+              color="#bc9560"
+            />
+          ))}
+          <Pole p={[0, 1.5, -0.4]} r={0.055} h={3} />
+          <Lantern position={[0, 1.85, -0.4]} scale={0.65} />
+        </StaticGeometry>
+      </group>
+    </group>
   );
 }
 function Kitchen({ s }: { s: State }) {
@@ -1046,9 +1091,11 @@ function Player({
     const context = (e: Event) => e.preventDefault();
     canvas.addEventListener("mousedown", down);
     canvas.addEventListener("contextmenu", context);
+    canvas.addEventListener("wheel", trackpadLook, { passive: false });
     return () => {
       canvas.removeEventListener("mousedown", down);
       canvas.removeEventListener("contextmenu", context);
+      canvas.removeEventListener("wheel", trackpadLook);
     };
   }, [gl]);
   useFrame(({ clock }, delta) => {
@@ -1059,7 +1106,7 @@ function Player({
     const beforeX = p.x,
       beforeZ = p.z;
     const groundedFloor =
-      s.bridge >= 6 && Math.abs(p.x) < 2 && p.z < -56 && p.z > -75 ? 0.35 : 0;
+      s.bridge >= 6 && Math.abs(p.x) < 2 && p.z < -56 && p.z > -79 ? 0.35 : 0;
     const canWalk = !river && !input.blocked && s.kite?.role !== role;
     let f = 0,
       side = 0;
@@ -1521,7 +1568,7 @@ function Scene({
     </>
   );
 }
-export default function World(props: {
+function World(props: {
   s: State;
   role: Role;
   onNear: (t: Target | null) => void;
@@ -1568,3 +1615,4 @@ export default function World(props: {
     </Canvas>
   );
 }
+export default memo(World);

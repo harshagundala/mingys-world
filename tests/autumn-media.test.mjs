@@ -251,3 +251,53 @@ test("legacy untagged SDP remains usable and duplicate legacy offers are idempot
   assert.equal(sent.filter((x) => x.data?.requestOffer).length, 0);
   m.disconnect();
 });
+
+test("ICE-enriched retransmissions retain the same tagged session and peer", async () => {
+  const m = setup(1);
+  const originalSDP =
+    "v=0\r\no=- 123 1 IN IP4 127.0.0.1\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=ice-ufrag:abc\r\na=fingerprint:sha-256 FIRST\r\n";
+  await m.signal(offer("session-enriched", originalSDP));
+  const peer = m.pc,
+    count = Peer.all.length;
+  for (let i = 0; i < 20; i++)
+    await m.signal(
+      offer(
+        "session-enriched",
+        originalSDP +
+          `a=candidate:${i} 1 udp 123 192.0.2.1 5555 typ host\r\na=end-of-candidates\r\n`,
+      ),
+    );
+  assert.equal(m.pc, peer);
+  assert.equal(Peer.all.length, count);
+  assert.equal(m.retiredSessions.has("session-enriched"), false);
+  await m.signal(candidate("session-enriched", "still-current"));
+  assert.deepEqual(peer.candidates, [{ candidate: "candidate:still-current" }]);
+  m.disconnect();
+});
+
+test("legacy SDP identity ignores gathered candidates but retains ICE restart credentials", async () => {
+  const m = setup(1);
+  const originalSDP =
+    "v=0\r\no=- 123 1 IN IP4 127.0.0.1\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=rtcp:9 IN IP4 0.0.0.0\r\na=ice-ufrag:abc\r\na=ice-pwd:original-password\r\na=fingerprint:sha-256 FIRST\r\n";
+  await m.signal({ description: { type: "offer", sdp: originalSDP } });
+  const peer = m.pc;
+  const enriched =
+    originalSDP
+      .replace("m=audio 9", "m=audio 5555")
+      .replace("c=IN IP4 0.0.0.0", "c=IN IP4 192.0.2.1")
+      .replace("a=rtcp:9 IN IP4 0.0.0.0", "a=rtcp:5556 IN IP4 192.0.2.1") +
+    "a=candidate:1 1 udp 123 192.0.2.1 5555 typ host\r\na=end-of-candidates\r\n";
+  await m.signal({ description: { type: "offer", sdp: enriched } });
+  assert.equal(m.pc, peer);
+  await m.signal({
+    description: {
+      type: "offer",
+      sdp: enriched
+        .replace("ice-ufrag:abc", "ice-ufrag:new")
+        .replace("original-password", "new-password"),
+    },
+  });
+  assert.notEqual(m.pc, peer);
+  assert.equal(peer.closed, true);
+  m.disconnect();
+});

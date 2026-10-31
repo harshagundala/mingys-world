@@ -1,4 +1,22 @@
 import { net } from "./network";
+// ICE gathering appends candidates and may replace the placeholder transport
+// address/port without creating a new offer. Preserve the actual SDP identity
+// (origin version, credentials, fingerprints, media directions and codecs).
+function offerIdentity(sdp: string | undefined) {
+  return (sdp || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line &&
+        !/^(?:a=(?:candidate:|end-of-candidates|remote-candidates:|rtcp:)|c=)/.test(
+          line,
+        ),
+    )
+    .map((line) => line.replace(/^(m=\S+)\s+\d+/, "$1 9"))
+    .join("\n");
+}
+
 export class Media extends EventTarget {
   stream = new MediaStream();
   remote = new MediaStream();
@@ -441,12 +459,15 @@ export class Media extends EventTarget {
     if (description?.type === "offer" && net.snapshot.role === 1) {
       if (session && this.retiredSessions.has(session)) return;
       let pc = this.pc;
-      // At-least-once Redis/WebSocket delivery may repeat the same SDP after an
-      // answer has already been applied. Answer it again, never reconnect.
+      // A session, not the raw SDP string, identifies an offer: ICE gathering
+      // appends candidate lines to localDescription after the original send.
+      // Re-answer that same negotiation without retiring its active session.
       if (
         pc?.remoteDescription?.type === "offer" &&
-        pc.remoteDescription.sdp === description.sdp &&
-        (!session || this.session === session)
+        (session
+          ? this.session === session
+          : offerIdentity(pc.remoteDescription.sdp) ===
+            offerIdentity(description.sdp))
       ) {
         if (pc.localDescription?.type === "answer") sendDescription(pc);
         return;
